@@ -1,0 +1,42 @@
+{
+  "name": "otc-predictor-frontend",
+  "version": "1.0.0",
+  "description": "OTC Predictor Frontend - Next.js dashboard with Material-UI",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "lint:fix": "next lint --fix",
+    "export": "next build && next export"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.11.1",
+    "@emotion/styled": "^11.11.0",
+    "@mui/icons-material": "^5.14.18",
+    "@mui/material": "^5.14.18",
+    "axios": "^1.6.2",
+    "next": "^14.0.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "recharts": "^2.10.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.54.0",
+    "eslint-config-next": "^14.0.3",
+    "eslint-plugin-react": "^7.33.2",
+    "prettier": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": [
+    "otc",
+    "trading",
+    "dashboard",
+    "nextjs",
+    "react",
+    "material-ui"
+  ]
+} 
