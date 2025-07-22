@@ -6,7 +6,7 @@ require('dotenv').config();
 
 const authRoutes = require('./routes/auth');
 const dataRoutes = require('./routes/data'); // Add data routes
-const screenshotRoutes = require('./routes/screenshots'); // Add screenshot routes
+const screenshotRoutes = require('./routes/screenshots'); // Add screenshot routes fix the confilt error 
 
 const app = express();
 const DEFAULT_PORT = process.env.PORT || 5001;
