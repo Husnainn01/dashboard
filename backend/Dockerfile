@@ -82,6 +82,9 @@ RUN npm ci --omit=dev --omit=optional || \
     (echo "npm ci failed, trying npm install..." && npm install --production --no-optional) || \
     (echo "trying npm install with optional..." && npm install --production)
 
+# Fix Sharp platform-specific binaries that may have been skipped
+RUN npm install sharp --platform=linux --arch=x64
+
 # Copy application code
 COPY . .
 
