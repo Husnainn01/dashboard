@@ -1,13 +1,10 @@
-# This file disables Nixpacks and forces Docker build
-# Railway will use our Dockerfile instead of auto-detection
-
+# Use Docker build with Railway
 [variables]
 NODE_VERSION = "20"
 PYTHON_VERSION = "3.9"
 
-# Disable Nixpacks - use Dockerfile instead
 [build]
-dockerfile = "./Dockerfile"
+dockerfile = "Dockerfile"
 
 [start]
 cmd = "npm start" 
