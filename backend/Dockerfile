@@ -50,9 +50,6 @@ ENV PYTHON=/usr/bin/python3
 ENV PYTHONUNBUFFERED=1
 ENV NODE_ENV=production
 
-# Configure npm for native builds
-RUN npm config set python /usr/bin/python3
-
 # Copy package files first (for Docker layer caching)
 COPY package*.json ./
 
