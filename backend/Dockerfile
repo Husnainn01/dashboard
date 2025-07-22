@@ -56,9 +56,16 @@ ENV PYTHON=/usr/bin/python3
 ENV PYTHONUNBUFFERED=1
 ENV NODE_ENV=production
 
+# Create python symlink for node-gyp
+RUN ln -s /usr/bin/python3 /usr/bin/python
+
 # Puppeteer configuration
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+
+# Brain.js configuration - disable GPU acceleration to avoid gl dependency issues
+ENV BRAIN_GPU=false
+ENV FORCE_CPU=true
 
 # Copy package files first (for Docker layer caching)
 COPY package*.json ./
@@ -69,7 +76,11 @@ RUN npm config set fund false
 RUN npm config set audit false
 
 # Install dependencies with proper error handling
-RUN npm ci --omit=dev || (echo "npm ci failed, trying npm install..." && npm install --production)
+# First try to install without optional dependencies to avoid gl build issues
+RUN npm ci --omit=dev --omit=optional || \
+    (echo "npm ci with omit optional failed, trying with optional..." && npm ci --omit=dev) || \
+    (echo "npm ci failed, trying npm install..." && npm install --production --no-optional) || \
+    (echo "trying npm install with optional..." && npm install --production)
 
 # Copy application code
 COPY . .
