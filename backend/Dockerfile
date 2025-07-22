@@ -68,8 +68,8 @@ RUN npm config set cache /tmp/.npm-cache --global
 RUN npm config set fund false
 RUN npm config set audit false
 
-# Install dependencies with optimizations for heavy packages
-RUN npm ci --only=production --silent
+# Install dependencies with proper error handling
+RUN npm ci --omit=dev || (echo "npm ci failed, trying npm install..." && npm install --production)
 
 # Copy application code
 COPY . .
