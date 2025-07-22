@@ -85,10 +85,9 @@ RUN npm ci --omit=dev --omit=optional || \
 # Copy application code
 COPY . .
 
-# Create non-root user for security
-RUN groupadd -r appuser && useradd -r -g appuser -u 1000 appuser
-RUN chown -R appuser:appuser /app
-USER appuser
+# Use existing node user for security (UID varies by base image)
+RUN chown -R node:node /app
+USER node
 
 # Expose port (Railway will set PORT env var)
 EXPOSE ${PORT:-5001}
