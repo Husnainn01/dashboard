@@ -28,12 +28,9 @@ const PredictionDashboard = () => {
   // System status
   const [systemStatus, setSystemStatus] = useState({});
   
-  // Available trading pairs (matching backend configuration)
+  // Available trading pairs - focused only on USD/BRL(OTC)
   const tradingPairs = [
-    { value: 'USD/BRL(OTC)', label: 'USD/BRL OTC', flag: '🇺🇸🇧🇷' },
-    { value: 'NZD/CAD(OTC)', label: 'NZD/CAD OTC', flag: '🇳🇿🇨🇦' },
-    { value: 'USD/BDT(OTC)', label: 'USD/BDT OTC', flag: '🇺🇸🇧🇩' },
-    { value: 'USD/EGP(OTC)', label: 'USD/EGP OTC', flag: '🇺🇸🇪🇬' }
+    { value: 'USD/BRL(OTC)', label: 'USD/BRL OTC', flag: '🇺🇸🇧🇷' }
   ];
   
   // Timezone options
@@ -218,7 +215,7 @@ const PredictionDashboard = () => {
       {/* Header */}
       <header className="header">
         <div className="header-title">
-          🤖 OTC Predictor - ML Prediction Dashboard
+          🤖 OTC Predictor - USD/BRL(OTC) ML Prediction Dashboard
         </div>
         <div className="header-controls">
           <ConnectionStatus 

@@ -36,19 +36,13 @@ const ConfigurationPanel = ({
           ))}
         </select>
         
-        {/* Quick Access Buttons */}
-        <div className="quick-pairs">
-          {tradingPairs.slice(0, 4).map((pair) => (
-            <button
-              key={pair.value}
-              className={`quick-pair-btn ${selectedPair === pair.value ? 'selected' : ''}`}
-              onClick={() => onPairChange(pair.value)}
-              disabled={predictionActive}
-            >
-              <span className="pair-flag">{pair.flag}</span>
-              <span className="pair-code">{pair.label.replace(' OTC', '')}</span>
-            </button>
-          ))}
+        {/* USD/BRL(OTC) Info */}
+        <div className="pair-info">
+          <div className="pair-info-item">
+            <span className="pair-flag">🇺🇸🇧🇷</span>
+            <span className="pair-name">USD/BRL OTC</span>
+            <span className="pair-description">Brazilian Real vs US Dollar</span>
+          </div>
         </div>
       </div>
       

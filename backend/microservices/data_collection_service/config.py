@@ -6,20 +6,29 @@ import os
 from pathlib import Path
 
 # Trading Configuration
+# Focusing exclusively on USD/BRL(OTC) for improved prediction accuracy
 DEFAULT_TRADING_PAIRS = [
-    "USD/BRL(OTC)",
-    "NZD/CAD(OTC)",
-    "USD/BDT(OTC)",
-    "USD/EGP(OTC)"
+    "USD/BRL(OTC)"
 ]
+
+# Disabled pairs (kept for reference)
+# DISABLED_PAIRS = [
+#     "NZD/CAD(OTC)",
+#     "USD/BDT(OTC)",
+#     "USD/EGP(OTC)"
+# ]
 
 # PyQuotex Settings
 QUOTEX_EMAIL = os.getenv('QUOTEX_EMAIL', 'husnain.shafique234@gmail.com')
 QUOTEX_PASSWORD = os.getenv('QUOTEX_PASSWORD', 'May4732@123@')
 
-# Data Collection Settings
-DATA_COLLECTION_INTERVAL = int(os.environ.get("DATA_COLLECTION_INTERVAL", "60"))  # seconds
+# Data Collection Settings - Optimized for USD/BRL(OTC)
+DATA_COLLECTION_INTERVAL = int(os.environ.get("DATA_COLLECTION_INTERVAL", "30"))  # seconds (more frequent collection)
 DEFAULT_TIMEFRAME = int(os.environ.get("DEFAULT_TIMEFRAME", "60"))  # seconds (1 minute)
+HISTORICAL_DATA_DAYS = int(os.environ.get("HISTORICAL_DATA_DAYS", "30"))  # Collect 30 days of historical data
+DATA_QUALITY_CHECKS = True  # Enable data quality checks
+RETRY_ON_ERROR = True  # Retry data collection on error
+MAX_RETRIES = 3  # Maximum number of retries
 
 # R2 Storage Configuration
 R2_CONFIG = {

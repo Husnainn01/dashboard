@@ -396,6 +396,36 @@ class DataCollector:
                 continue
         
         return collected
+        
+    async def collect_asset(self, asset_name: str) -> List[CandleData]:
+        """
+        Collect data for a specific asset - Added to support microservices
+        
+        Args:
+            asset_name: Name of the asset to collect
+            
+        Returns:
+            List[CandleData]: List of collected candles as CandleData objects
+        """
+        try:
+            self.logger.info(f"📊 Collecting data for {asset_name}...")
+            
+            candle = await self.collect_candle_data(asset_name)
+            if candle:
+                # Save to MongoDB if not already saved
+                if not hasattr(candle, '_id') or not candle._id:
+                    candle_id = await self.db.save_candle(candle)
+                    candle._id = candle_id
+                
+                # Return the CandleData object directly
+                return [candle]
+            else:
+                self.logger.warning(f"⚠️ No candle data returned for {asset_name}")
+                return []
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error collecting data for {asset_name}: {str(e)}")
+            return []
     
     async def start_continuous_collection(self, duration_minutes: int = 60):
         """

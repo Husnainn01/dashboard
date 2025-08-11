@@ -6,17 +6,27 @@ import os
 from pathlib import Path
 
 # Trading Configuration
+# Focusing exclusively on USD/BRL(OTC) for improved prediction accuracy
 DEFAULT_TRADING_PAIRS = [
-    "USD/BRL(OTC)",
-    "NZD/CAD(OTC)",
-    "USD/BDT(OTC)",
-    "USD/EGP(OTC)"
+    "USD/BRL(OTC)"
 ]
 
-# ML Model Configuration
-MODEL_RETRAIN_INTERVAL = int(os.environ.get("MODEL_RETRAIN_INTERVAL", "24"))  # hours
-MIN_TRAINING_SAMPLES = int(os.environ.get("MIN_TRAINING_SAMPLES", "100"))  # minimum samples required for training
-PREDICTION_CONFIDENCE_THRESHOLD = float(os.environ.get("PREDICTION_CONFIDENCE_THRESHOLD", "0.55"))  # minimum confidence for predictions
+# Disabled pairs (kept for reference)
+# DISABLED_PAIRS = [
+#     "NZD/CAD(OTC)",
+#     "USD/BDT(OTC)",
+#     "USD/EGP(OTC)"
+# ]
+
+# ML Model Configuration - Enhanced for USD/BRL(OTC)
+MODEL_RETRAIN_INTERVAL = int(os.environ.get("MODEL_RETRAIN_INTERVAL", "12"))  # hours (more frequent retraining)
+MIN_TRAINING_SAMPLES = int(os.environ.get("MIN_TRAINING_SAMPLES", "50"))  # reduced minimum samples for faster adaptation
+PREDICTION_CONFIDENCE_THRESHOLD = float(os.environ.get("PREDICTION_CONFIDENCE_THRESHOLD", "0.60"))  # increased confidence threshold
+MODEL_CACHE_TTL = 300  # Model cache time-to-live in seconds (5 minutes)
+FEATURE_CACHE_TTL = 60  # Feature cache time-to-live in seconds (1 minute)
+ENSEMBLE_PREDICTION = True  # Use ensemble prediction (combine multiple models)
+PREDICTION_HISTORY_LENGTH = 10  # Number of past predictions to keep for trend analysis
+TECHNICAL_INDICATORS_WEIGHT = 0.7  # Weight for technical indicators vs price action
 
 # R2 Storage Configuration
 R2_CONFIG = {

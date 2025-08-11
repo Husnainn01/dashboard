@@ -6,26 +6,34 @@ import os
 from pathlib import Path
 
 # Trading Configuration
+# Focusing exclusively on USD/BRL(OTC) for improved prediction accuracy
 DEFAULT_TRADING_PAIRS = [
-    "USD/BRL(OTC)",
-    "NZD/CAD(OTC)",
-    "USD/BDT(OTC)",
-    "USD/EGP(OTC)"
+    "USD/BRL(OTC)"
 ]
+
+# Disabled pairs (kept for reference)
+# DISABLED_PAIRS = [
+#     "NZD/CAD(OTC)",
+#     "USD/BDT(OTC)",
+#     "USD/EGP(OTC)"
+# ]
 
 # ML Model Configuration
 MODEL_RETRAIN_INTERVAL = int(os.environ.get("MODEL_RETRAIN_INTERVAL", "24"))  # hours
 MIN_TRAINING_SAMPLES = int(os.environ.get("MIN_TRAINING_SAMPLES", "50"))  # minimum samples required for training
 PREDICTION_CONFIDENCE_THRESHOLD = float(os.environ.get("PREDICTION_CONFIDENCE_THRESHOLD", "0.55"))  # minimum confidence for predictions
 
-# Auto-Training Configuration
+# Auto-Training Configuration - Enhanced for USD/BRL(OTC)
 AUTO_TRAINING = {
     "enabled": os.environ.get("AUTO_TRAINING_ENABLED", "true").lower() == "true",
-    "schedule_interval_hours": int(os.environ.get("AUTO_TRAINING_INTERVAL", "24")),  # Retrain every 24 hours
-    "min_new_samples": int(os.environ.get("AUTO_TRAINING_MIN_NEW_SAMPLES", "50")),  # Minimum new samples to trigger retraining
-    "trading_pairs": DEFAULT_TRADING_PAIRS,  # Which pairs to auto-train
-    "model_types": ["xgboost", "random_forest"],  # Which model types to train
-    "max_concurrent_jobs": 2,  # Maximum concurrent training jobs
+    "schedule_interval_hours": int(os.environ.get("AUTO_TRAINING_INTERVAL", "12")),  # Retrain more frequently (every 12 hours)
+    "min_new_samples": int(os.environ.get("AUTO_TRAINING_MIN_NEW_SAMPLES", "30")),  # Lower threshold to train more often
+    "trading_pairs": DEFAULT_TRADING_PAIRS,  # Only USD/BRL(OTC)
+    "model_types": ["xgboost", "random_forest", "lightgbm"],  # Added LightGBM for better performance
+    "max_concurrent_jobs": 3,  # Increased concurrent jobs for more thorough hyperparameter search
+    "cross_validation_folds": 5,  # Use 5-fold cross-validation
+    "hyperparameter_tuning": True,  # Enable hyperparameter tuning
+    "feature_importance_analysis": True,  # Analyze feature importance
 }
 
 # R2 Storage Configuration
