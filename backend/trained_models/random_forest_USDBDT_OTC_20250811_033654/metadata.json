@@ -1,0 +1,17 @@
+{
+  "algorithm": "random_forest",
+  "trading_pair": "USDBDT OTC",
+  "trained_at": "2025-08-11T03:36:54.301446",
+  "metrics": {
+    "accuracy": 0.5348837209302325,
+    "precision": 0.5348837209302325,
+    "recall": 0.5348837209302325,
+    "f1": 0.5348837209302325,
+    "auc_roc": 0.6108695652173913,
+    "cv_mean": 0.5324420677361854,
+    "cv_std": 0.08643456816457819
+  },
+  "model_path": "/Users/husnain/Downloads/dash-baord/otc-predictor/backend/trained_models/random_forest_USDBDT_OTC_20250811_033654/model.pkl",
+  "scaler_path": "/Users/husnain/Downloads/dash-baord/otc-predictor/backend/trained_models/random_forest_USDBDT_OTC_20250811_033654/scaler.pkl",
+  "version": "1.0.0"
+}

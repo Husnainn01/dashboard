@@ -1,0 +1,18 @@
+{
+  "trading_pair": "USDBRL OTC",
+  "trained_at": "2025-08-07T06:04:00.044686",
+  "models_trained": 1,
+  "best_model": "xgboost",
+  "best_accuracy": 0.5714285714285714,
+  "model_comparison": {
+    "xgboost": {
+      "accuracy": 0.5714285714285714,
+      "precision": 0.5451127819548872,
+      "recall": 0.5714285714285714,
+      "f1": 0.4834520318391286,
+      "auc_roc": 0.6759259259259259,
+      "cv_mean": 0.5926470588235294,
+      "cv_std": 0.12185489697568587
+    }
+  }
+}

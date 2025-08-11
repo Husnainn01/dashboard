@@ -1,0 +1,389 @@
+/* Prediction Dashboard Styles */
+
+/* Main Layout */
+.main-content {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 20px;
+  height: calc(100vh - 80px);
+  padding: 20px;
+}
+
+/* Configuration Panel */
+.config-panel {
+  background-color: var(--bg-secondary);
+  border-radius: 12px;
+  overflow-y: auto;
+  height: 100%;
+  box-shadow: 0 4px 12px var(--shadow-dark);
+}
+
+.config-panel-container {
+  padding: 20px;
+}
+
+.config-panel-container h2 {
+  margin-bottom: 20px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.config-section {
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.config-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.config-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.quick-pairs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.quick-pair-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quick-pair-btn:hover {
+  background-color: rgba(58, 134, 255, 0.1);
+  border-color: var(--accent-primary);
+}
+
+.quick-pair-btn.selected {
+  background-color: rgba(58, 134, 255, 0.2);
+  border-color: var(--accent-primary);
+}
+
+.pair-flag {
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+
+.pair-code {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.backend-warning {
+  margin-top: 8px;
+  padding: 8px;
+  background-color: rgba(255, 190, 11, 0.1);
+  border: 1px solid var(--warning-color);
+  border-radius: 4px;
+  color: var(--warning-color);
+  font-size: 12px;
+  text-align: center;
+}
+
+.advanced-settings {
+  margin-top: 16px;
+  padding: 16px;
+  background-color: var(--bg-tertiary);
+  border-radius: 8px;
+}
+
+.config-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.config-row label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.config-row .select {
+  width: 120px;
+}
+
+.status-section {
+  background-color: var(--bg-tertiary);
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.status-row:last-child {
+  margin-bottom: 0;
+}
+
+.status-row span:first-child {
+  color: var(--text-secondary);
+}
+
+.status-indicator.connected,
+.status-indicator.active {
+  color: var(--accent-green);
+}
+
+.status-indicator.disconnected,
+.status-indicator.inactive {
+  color: var(--text-secondary);
+}
+
+/* Prediction Panel */
+.prediction-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  height: 100%;
+  overflow-y: hidden;
+}
+
+.current-prediction {
+  background-color: var(--bg-secondary);
+  border-radius: 12px;
+  padding: 20px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px var(--shadow-dark);
+}
+
+.current-prediction h2 {
+  margin-bottom: 20px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.prediction-history {
+  background-color: var(--bg-secondary);
+  border-radius: 12px;
+  padding: 20px;
+  flex-grow: 1;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px var(--shadow-dark);
+}
+
+.prediction-history h2 {
+  margin-bottom: 20px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.no-prediction, 
+.no-history {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: var(--text-secondary);
+  font-size: 16px;
+  text-align: center;
+}
+
+.loading-prediction {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(58, 134, 255, 0.3);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Prediction Card */
+.prediction-card {
+  background-color: var(--bg-tertiary);
+  border-radius: 12px;
+  border: 1px solid;
+  padding: 20px;
+  transition: all 0.2s ease;
+}
+
+.prediction-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--shadow-dark);
+}
+
+.prediction-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.prediction-direction-large {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.prediction-confidence-large {
+  text-align: right;
+}
+
+.confidence-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.confidence-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.prediction-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.prediction-pair-info {
+  grid-column: 1 / -1;
+}
+
+.meta-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-right: 4px;
+}
+
+.meta-value {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.prediction-expand-btn {
+  width: 100%;
+  padding: 8px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.prediction-expand-btn:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.prediction-expanded {
+  margin-top: 16px;
+  padding: 16px;
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+}
+
+.expanded-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.expanded-row:last-child {
+  margin-bottom: 0;
+}
+
+.expanded-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.expanded-value {
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+/* Compact Prediction Card */
+.prediction-card.compact {
+  padding: 12px;
+}
+
+.prediction-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.prediction-direction {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.prediction-time {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.prediction-details {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.prediction-confidence {
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.prediction-pair {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Responsive Adjustments */
+@media (max-width: 1024px) {
+  .main-content {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  
+  .config-panel {
+    height: auto;
+  }
+}

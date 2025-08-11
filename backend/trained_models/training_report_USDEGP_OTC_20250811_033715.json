@@ -1,0 +1,18 @@
+{
+  "trading_pair": "USDEGP OTC",
+  "trained_at": "2025-08-11T03:37:15.954282",
+  "models_trained": 1,
+  "best_model": "random_forest",
+  "best_accuracy": 0.5348837209302325,
+  "model_comparison": {
+    "random_forest": {
+      "accuracy": 0.5348837209302325,
+      "precision": 0.5422276621787027,
+      "recall": 0.5348837209302325,
+      "f1": 0.5338769757374409,
+      "auc_roc": 0.6739130434782609,
+      "cv_mean": 0.5912655971479501,
+      "cv_std": 0.039725258400759765
+    }
+  }
+}

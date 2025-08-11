@@ -1,0 +1,81 @@
+version: '3'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: otc-predictor-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
+  data-collection:
+    build:
+      context: ../
+      dockerfile: microservices/data_collection_service/Dockerfile
+    container_name: otc-predictor-data-collection
+    ports:
+      - "5001:5001"
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017
+      - QUOTEX_EMAIL=${QUOTEX_EMAIL}
+      - QUOTEX_PASSWORD=${QUOTEX_PASSWORD}
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+
+  ml-training:
+    build:
+      context: ../
+      dockerfile: microservices/ml_training_service/Dockerfile
+    container_name: otc-predictor-ml-training
+    ports:
+      - "5002:5002"
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017
+    volumes:
+      - trained_models:/app/trained_models
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+
+  prediction:
+    build:
+      context: ../
+      dockerfile: microservices/prediction_service/Dockerfile
+    container_name: otc-predictor-prediction
+    ports:
+      - "5003:5003"
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017
+    volumes:
+      - trained_models:/app/trained_models
+    depends_on:
+      - mongodb
+      - ml-training
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ../
+      dockerfile: microservices/api_gateway/Dockerfile
+    container_name: otc-predictor-api-gateway
+    ports:
+      - "5000:5000"
+    environment:
+      - DATA_SERVICE_HOST=data-collection
+      - DATA_SERVICE_PORT=5001
+      - ML_SERVICE_HOST=ml-training
+      - ML_SERVICE_PORT=5002
+      - PREDICTION_SERVICE_HOST=prediction
+      - PREDICTION_SERVICE_PORT=5003
+    depends_on:
+      - data-collection
+      - ml-training
+      - prediction
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+  trained_models:

@@ -1,0 +1,18 @@
+{
+  "trading_pair": "NZDCAD OTC",
+  "trained_at": "2025-08-07T06:04:03.302527",
+  "models_trained": 1,
+  "best_model": "xgboost",
+  "best_accuracy": 0.5416666666666666,
+  "model_comparison": {
+    "xgboost": {
+      "accuracy": 0.5416666666666666,
+      "precision": 0.5043859649122807,
+      "recall": 0.5416666666666666,
+      "f1": 0.49999999999999994,
+      "auc_roc": 0.6142857142857143,
+      "cv_mean": 0.6456140350877193,
+      "cv_std": 0.05136221055566428
+    }
+  }
+}

@@ -1,489 +1,397 @@
 /**
  * API Service
- * Provides functions to communicate with the backend API
- * Updated to use simplified session-based authentication for embedded login
+ * Provides functions to communicate with the OTC Predictor API Gateway
+ * Updated for microservices architecture
  */
-console.log('API Service loaded - using embedded session approach');
 
-// API base URL
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api';
-console.log('API base URL:', API_BASE_URL);
+// API base URL - Updated to API Gateway port 5001
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+console.log('🔌 API Service loaded - API Gateway:', API_BASE_URL);
 
-// Mock candle data generator
-const generateMockCandleData = (count = 20) => {
-  const candles = [];
-  let basePrice = 1.2345;
-  const now = new Date();
-  
-  for (let i = 0; i < count; i++) {
-    // Calculate time (starting from the past)
-    const timestamp = new Date(now.getTime() - (count - i) * 60000).toISOString();
+// WebSocket URL - Updated to API Gateway
+const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:5001';
+console.log('📡 WebSocket URL:', WS_BASE_URL);
+
+/**
+ * Generic API request handler with error handling
+ * @param {string} endpoint - API endpoint
+ * @param {Object} options - Fetch options
+ * @returns {Promise<Object>} API response
+ */
+const apiRequest = async (endpoint, options = {}) => {
+  try {
+    const url = `${API_BASE_URL}${endpoint}`;
+    console.log(`🌐 API Request: ${options.method || 'GET'} ${url}`);
     
-    // Random price movement
-    const movement = (Math.random() - 0.5) * 0.01;
-    basePrice += movement;
-    
-    // Create candle data
-    const open = basePrice;
-    const close = basePrice + (Math.random() - 0.5) * 0.005;
-    const high = Math.max(open, close) + Math.random() * 0.003;
-    const low = Math.min(open, close) - Math.random() * 0.003;
-    const direction = close > open ? 'up' : 'down';
-    
-    candles.push({
-      timestamp,
-      open,
-      close,
-      high,
-      low,
-      direction,
-      tradingPair: 'EUR/USD OTC',
-      timeframe: 60
+    const response = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+      },
+      ...options
     });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log(`✅ API Response: ${endpoint}`, data);
+    return data;
+  } catch (error) {
+    console.error(`❌ API Error: ${endpoint}`, error.message);
+    throw error;
+  }
+};
+
+// =============================================================================
+// SYSTEM STATUS & HEALTH
+// =============================================================================
+
+/**
+ * Check API health status
+ * @returns {Promise<Object>} Health status
+ */
+export const getHealthStatus = async () => {
+  return await apiRequest('/health');
+};
+
+/**
+ * Get system status (database, models, etc.)
+ * @returns {Promise<Object>} System status
+ */
+export const getSystemStatus = async () => {
+  return await apiRequest('/status');
+};
+
+/**
+ * Get database statistics
+ * @returns {Promise<Object>} Database stats
+ */
+export const getDatabaseStats = async () => {
+  return await apiRequest('/database/stats');
+};
+
+// =============================================================================
+// CANDLE DATA
+// =============================================================================
+
+/**
+ * Fetch latest candle data
+ * @param {Object} params - Query parameters
+ * @param {string} params.trading_pair - Trading pair (e.g., "EURUSD OTC")
+ * @param {number} params.limit - Number of candles to fetch (default: 50)
+ * @returns {Promise<Array>} Array of candle data
+ */
+export const fetchLatestCandles = async (params = {}) => {
+  const tradingPair = encodeURIComponent(params.trading_pair || 'USD/BRL(OTC)');
+  const limit = params.limit || 50;
+  
+  return await apiRequest(`/data/candles/${tradingPair}?limit=${limit}`);
+};
+
+// =============================================================================
+// ML PREDICTIONS
+// =============================================================================
+
+/**
+ * Get latest prediction for a trading pair
+ * @param {string} tradingPair - Trading pair to predict
+ * @returns {Promise<Object>} Prediction data
+ */
+export const getLatestPrediction = async (tradingPair = 'USD/BRL(OTC)') => {
+  return await apiRequest(`/predict/${encodeURIComponent(tradingPair)}`);
+};
+
+/**
+ * Request a new prediction for a trading pair
+ * @param {string} tradingPair - Trading pair to predict
+ * @param {string} modelType - Model type to use (optional)
+ * @returns {Promise<Object>} Prediction data
+ */
+export const requestPrediction = async (tradingPair = 'USD/BRL(OTC)', modelType = null) => {
+  const body = {
+    trading_pair: tradingPair
+  };
+  
+  if (modelType) {
+    body.model_type = modelType;
   }
   
-  return candles;
+  return await apiRequest('/predict', {
+    method: 'POST',
+    body: JSON.stringify(body)
+  });
 };
 
-// Mock prediction generator
-const generateMockPrediction = () => {
-  const direction = Math.random() > 0.5 ? 'up' : 'down';
-  const confidence = Math.floor(Math.random() * 30) + 60;
-  
-  return {
-    direction,
-    confidence,
-    patternId: 'pattern_' + Date.now().toString(16).slice(-6),
-    timestamp: new Date().toISOString(),
-    similarPatternsCount: Math.floor(Math.random() * 10) + 1
-  };
+// =============================================================================
+// ML MODELS MANAGEMENT
+// =============================================================================
+
+/**
+ * Get available ML models and their status
+ * @returns {Promise<Object>} Models information
+ */
+export const getModelsInfo = async () => {
+  return await apiRequest('/ml/models');
 };
 
 /**
- * Fetch mock data for development
- * @returns {Promise<Object>} Mock data
+ * Get models for a specific trading pair
+ * @param {string} tradingPair - Trading pair to get models for
+ * @returns {Promise<Object>} Models information
+ */
+export const getModelsForPair = async (tradingPair = 'USD/BRL(OTC)') => {
+  return await apiRequest(`/ml/models/${encodeURIComponent(tradingPair)}`);
+};
+
+/**
+ * Trigger model retraining
+ * @param {string} tradingPair - Trading pair to retrain model for
+ * @param {string} modelType - Model type to train (xgboost, random_forest, lightgbm)
+ * @param {boolean} forceRetrain - Force retraining even if model exists
+ * @returns {Promise<Object>} Retraining response
+ */
+export const retrainModel = async (tradingPair = 'USD/BRL(OTC)', modelType = 'xgboost', forceRetrain = false) => {
+  return await apiRequest('/ml/train', {
+    method: 'POST',
+    body: JSON.stringify({
+      trading_pair: tradingPair,
+      model_type: modelType,
+      force_retrain: forceRetrain
+    })
+  });
+};
+
+/**
+ * Get training job status
+ * @param {string} jobId - Training job ID
+ * @returns {Promise<Object>} Job status
+ */
+export const getTrainingStatus = async (jobId) => {
+  return await apiRequest(`/ml/train/status/${jobId}`);
+};
+
+/**
+ * Get training queue status
+ * @returns {Promise<Object>} Queue status
+ */
+export const getTrainingQueueStatus = async () => {
+  return await apiRequest('/ml/queue/status');
+};
+
+/**
+ * Get available trading pairs
+ * @returns {Promise<Array>} List of trading pairs
+ */
+export const getTradingPairs = async () => {
+  return await apiRequest('/trading-pairs');
+};
+
+// =============================================================================
+// PREDICTION SERVICE CONTROL
+// =============================================================================
+
+/**
+ * Start continuous prediction service
+ * @returns {Promise<Object>} Response
+ */
+export const startPredictionService = async () => {
+  return await apiRequest('/predictions/start', {
+    method: 'POST'
+  });
+};
+
+/**
+ * Stop continuous prediction service
+ * @returns {Promise<Object>} Response
+ */
+export const stopPredictionService = async () => {
+  return await apiRequest('/predictions/stop', {
+    method: 'POST'
+  });
+};
+
+// =============================================================================
+// WEBSOCKET CONNECTIONS
+// =============================================================================
+
+/**
+ * Create WebSocket connection for predictions
+ * @returns {WebSocket} WebSocket connection
+ */
+export const createPredictionWebSocket = () => {
+  return new WebSocket(`${WS_BASE_URL}/ws/predictions`);
+};
+
+/**
+ * Create WebSocket connection for market data
+ * @returns {WebSocket} WebSocket connection
+ */
+export const createMarketDataWebSocket = () => {
+  return new WebSocket(`${WS_BASE_URL}/ws/market-data`);
+};
+
+/**
+ * Create unified WebSocket connection
+ * @returns {WebSocket} WebSocket connection
+ */
+export const createUnifiedWebSocket = () => {
+  return new WebSocket(`${WS_BASE_URL}/ws`);
+};
+
+// =============================================================================
+// LEGACY COMPATIBILITY
+// =============================================================================
+
+/**
+ * Fetch mock data - Updated to use real API data
+ * @returns {Promise<Object>} Real candle and prediction data
  */
 export const fetchMockData = async () => {
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  return {
-    candles: generateMockCandleData(20),
-    prediction: generateMockPrediction()
-  };
+  try {
+    const [candles, prediction] = await Promise.all([
+      fetchLatestCandles({ limit: 20 }),
+      getLatestPrediction().catch(() => null) // Don't fail if no prediction available
+    ]);
+    
+    return {
+      candles: candles?.candles || [],
+      prediction: prediction
+    };
+  } catch (error) {
+    console.warn('⚠️ Failed to fetch real data, using fallback');
+    return {
+      candles: [],
+      prediction: null
+    };
+  }
 };
 
 /**
- * Start the trading bot
+ * Start bot - Updated to start prediction service
  * @returns {Promise<Object>} Response
  */
 export const startBot = async () => {
-  console.log('startBot called');
-  
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 1500));
-  
-  console.log('Bot started successfully');
-  return { success: true, message: 'Bot started successfully' };
+  try {
+    return await startPredictionService();
+  } catch (error) {
+    return { 
+      success: false, 
+      message: error.message
+    };
+  }
 };
 
 /**
- * Stop the trading bot
- * @returns {Promise<Object>} Response
+ * Stop bot - Updated to stop prediction service
+ * @returns {Promise<Object>} Response  
  */
 export const stopBot = async () => {
-  console.log('stopBot called');
-  
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  console.log('Bot stopped successfully');
-  return { success: true, message: 'Bot stopped successfully' };
+  try {
+    return await stopPredictionService();
+  } catch (error) {
+    return { 
+      success: false, 
+      message: error.message
+    };
+  }
 };
 
 /**
- * Create a new session for embedded login
- * @param {Object} sessionData - Session data (email, etc.)
- * @returns {Promise<Object>} Session creation response
+ * Get bot status - Updated to show system status
+ * @returns {Promise<Object>} System status
  */
-export const createSession = async (sessionData = {}) => {
-  console.log('createSession called');
-  console.log('Session data:', sessionData);
-  
+export const getBotStatus = async () => {
   try {
-    // Always try the backend first
-    console.log(`Creating session at ${API_BASE_URL}/auth/create-session`);
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/create-session`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(sessionData),
-      });
-      
-      console.log('Create session response status:', response.status);
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Session created successfully:', data);
-        return data;
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Session creation failed:', errorData);
-        throw new Error(errorData.message || `HTTP ${response.status}`);
-      }
-    } catch (fetchError) {
-      console.error('Backend connection failed:', fetchError.message);
-      
-      // Fallback to mock session creation in development
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Falling back to mock session creation');
-        
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        const mockSession = {
-          success: true,
-          message: 'Session created successfully (mock)',
-          session: {
-            id: `mock-session-${Date.now()}`,
-            email: sessionData.email || 'mock-user@example.com',
-            timestamp: Date.now(),
-            type: 'embedded'
-          }
-        };
-        
-        console.log('Mock session created:', mockSession);
-        return mockSession;
-      } else {
-        throw fetchError;
-      }
-    }
+    const status = await getSystemStatus();
+    return {
+      running: status.prediction?.status === 'running',
+      uptime: status.prediction?.uptime_seconds || 0,
+      candlesProcessed: status.data_collection?.stats?.total_collections || 0,
+      lastPrediction: status.prediction?.last_prediction || null,
+      modelsLoaded: Object.keys(status.prediction?.active_models || {}).length
+    };
   } catch (error) {
-    console.error('Session creation error:', error);
-    return { 
-      success: false, 
-      message: 'Failed to create session',
+    return {
+      running: false,
+      uptime: 0,
+      candlesProcessed: 0,
+      lastPrediction: null,
+      modelsLoaded: 0,
       error: error.message
     };
   }
 };
 
 /**
- * Validate an existing session
- * @param {string} sessionId - Session ID to validate
- * @param {Object} updateData - Optional data to update (email, etc.)
- * @returns {Promise<Object>} Validation response
- */
-export const validateSession = async (sessionId, updateData = {}) => {
-  console.log('validateSession called');
-  console.log('Session ID:', sessionId);
-  console.log('Update data:', updateData);
-  
-  try {
-    // Try the backend first
-    console.log(`Validating session at ${API_BASE_URL}/auth/validate-session`);
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/validate-session`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ sessionId, ...updateData }),
-      });
-      
-      console.log('Validate session response status:', response.status);
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Session validation successful:', data);
-        return data;
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Session validation failed:', errorData);
-        throw new Error(errorData.message || `HTTP ${response.status}`);
-      }
-    } catch (fetchError) {
-      console.error('Backend connection failed:', fetchError.message);
-      
-      // Fallback to mock validation in development
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Falling back to mock session validation');
-        
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        const mockValidation = {
-          success: true,
-          message: 'Session is valid (mock)',
-          session: {
-            id: sessionId,
-            email: updateData.email || 'mock-user@example.com',
-            timestamp: Date.now() - 300000, // 5 minutes ago
-            type: 'embedded',
-            lastActivity: Date.now()
-          }
-        };
-        
-        console.log('Mock session validation:', mockValidation);
-        return mockValidation;
-      } else {
-        throw fetchError;
-      }
-    }
-  } catch (error) {
-    console.error('Session validation error:', error);
-    return { 
-      success: false, 
-      message: 'Session validation failed',
-      error: error.message
-    };
-  }
-};
-
-/**
- * Logout and end session
- * @param {string} sessionId - Session ID to end
- * @returns {Promise<Object>} Logout response
- */
-export const logoutSession = async (sessionId) => {
-  console.log('logoutSession called');
-  console.log('Session ID:', sessionId);
-  
-  try {
-    // Try the backend first
-    console.log(`Logging out session at ${API_BASE_URL}/auth/logout`);
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/logout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ sessionId }),
-      });
-      
-      console.log('Logout response status:', response.status);
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Logout successful:', data);
-        return data;
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Logout failed:', errorData);
-        throw new Error(errorData.message || `HTTP ${response.status}`);
-      }
-    } catch (fetchError) {
-      console.error('Backend connection failed:', fetchError.message);
-      
-      // Fallback to mock logout in development
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Falling back to mock logout');
-        
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        const mockLogout = {
-          success: true,
-          message: 'Logged out successfully (mock)'
-        };
-        
-        console.log('Mock logout:', mockLogout);
-        return mockLogout;
-      } else {
-        throw fetchError;
-      }
-    }
-  } catch (error) {
-    console.error('Logout error:', error);
-    return { 
-      success: false, 
-      message: 'Logout failed',
-      error: error.message
-    };
-  }
-};
-
-/**
- * Check session status
- * @param {string} sessionId - Session ID to check
- * @returns {Promise<Object>} Session status
- */
-export const checkSessionStatus = async (sessionId) => {
-  console.log('checkSessionStatus called');
-  console.log('Session ID:', sessionId);
-  
-  try {
-    // Try the backend first
-    console.log(`Checking session status at ${API_BASE_URL}/auth/status/${sessionId}`);
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/status/${sessionId}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      console.log('Session status response status:', response.status);
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Session status check successful:', data);
-        return data;
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Session status check failed:', errorData);
-        throw new Error(errorData.message || `HTTP ${response.status}`);
-      }
-    } catch (fetchError) {
-      console.error('Backend connection failed:', fetchError.message);
-      
-      // Fallback to mock status check in development
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Falling back to mock session status check');
-        
-        await new Promise(resolve => setTimeout(resolve, 200));
-        
-        const mockStatus = {
-          success: true,
-          message: 'Session is active (mock)',
-          session: {
-            id: sessionId,
-            email: 'mock-user@example.com',
-            lastActivity: Date.now(),
-            type: 'embedded',
-            status: 'active'
-          }
-        };
-        
-        console.log('Mock session status:', mockStatus);
-        return mockStatus;
-      } else {
-        throw fetchError;
-      }
-    }
-  } catch (error) {
-    console.error('Session status check error:', error);
-    return { 
-      success: false, 
-      message: 'Failed to check session status',
-      error: error.message
-    };
-  }
-};
-
-/**
- * Fetch historical candle data
+ * Fetch historical data - Updated to use real API
  * @param {Object} params - Query parameters
- * @returns {Promise<Array>} Candle data
+ * @returns {Promise<Array>} Historical candle data
  */
 export const fetchHistoricalData = async (params = {}) => {
-  console.log('fetchHistoricalData called with params:', params);
-  
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 800));
-  
-  const { count = 50, tradingPair = 'EUR/USD OTC' } = params;
-  
-  const data = generateMockCandleData(count);
-  console.log(`Generated ${data.length} mock candles for ${tradingPair}`);
-  
-  return data;
+  return await fetchLatestCandles({
+    trading_pair: params.tradingPair || 'USD/BRL(OTC)',
+    limit: params.count || 50
+  });
 };
 
 /**
- * Get latest prediction
- * @returns {Promise<Object>} Prediction
- */
-export const getLatestPrediction = async () => {
-  console.log('getLatestPrediction called');
-  
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 300));
-  
-  const prediction = generateMockPrediction();
-  console.log('Generated prediction:', prediction);
-  
-  return prediction;
-};
-
-/**
- * Save settings to backend
+ * Save settings - Placeholder for future settings API
  * @param {Object} settings - Settings to save
  * @returns {Promise<Object>} Response
  */
 export const saveSettings = async (settings) => {
-  console.log('saveSettings called with:', settings);
-  
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  console.log('Settings saved successfully');
+  console.log('💾 Settings save requested:', settings);
+  // For now, just store in localStorage
+  localStorage.setItem('otc_predictor_settings', JSON.stringify(settings));
   return { 
     success: true, 
-    message: 'Settings saved successfully',
+    message: 'Settings saved locally',
     settings
   };
 };
 
-/**
- * Get bot status
- * @returns {Promise<Object>} Bot status
- */
-export const getBotStatus = async () => {
-  console.log('getBotStatus called');
-  
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 200));
-  
-  const status = { 
-    running: Math.random() > 0.5,
-    uptime: Math.floor(Math.random() * 3600), // seconds
-    candlesProcessed: Math.floor(Math.random() * 1000),
-    lastPrediction: generateMockPrediction()
-  };
-  
-  console.log('Bot status:', status);
-  return status;
-};
+// =============================================================================
+// EXPORTS
+// =============================================================================
 
-// Legacy compatibility functions (deprecated - use new session functions instead)
-export const authenticateQuotex = async (credentials) => {
-  console.warn('authenticateQuotex is deprecated, use createSession instead');
-  return createSession({ email: credentials.email });
-};
-
-export const verifyOtp = async (pendingSessionId, otpCode) => {
-  console.warn('verifyOtp is deprecated, OTP is now handled in embedded iframe');
-  return { success: true, message: 'OTP handled in embedded login' };
-};
-
-export const logoutQuotex = async (sessionId) => {
-  console.warn('logoutQuotex is deprecated, use logoutSession instead');
-  return logoutSession(sessionId);
-};
-
-// Default export
 export default {
-  // Core data functions
+  // System Status
+  getHealthStatus,
+  getSystemStatus,
+  getDatabaseStats,
+  
+  // Candle Data
+  fetchLatestCandles,
+  
+  // ML Predictions
+  getLatestPrediction,
+  requestPrediction,
+  
+  // Model Management
+  getModelsInfo,
+  getModelsForPair,
+  retrainModel,
+  getTrainingStatus,
+  getTrainingQueueStatus,
+  getTradingPairs,
+  
+  // Prediction Service Control
+  startPredictionService,
+  stopPredictionService,
+  
+  // WebSocket Connections
+  createPredictionWebSocket,
+  createMarketDataWebSocket,
+  createUnifiedWebSocket,
+  
+  // Legacy Compatibility
   fetchMockData,
   startBot,
   stopBot,
-  fetchHistoricalData,
-  getLatestPrediction,
-  saveSettings,
   getBotStatus,
-  
-  // New session-based authentication functions
-  createSession,
-  validateSession,
-  logoutSession,
-  checkSessionStatus,
-  
-  // Legacy compatibility (deprecated)
-  authenticateQuotex,
-  verifyOtp,
-  logoutQuotex
-}; 
+  fetchHistoricalData,
+  saveSettings
+};

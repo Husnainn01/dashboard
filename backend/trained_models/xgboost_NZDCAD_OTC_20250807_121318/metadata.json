@@ -1,0 +1,17 @@
+{
+  "algorithm": "xgboost",
+  "trading_pair": "NZDCAD OTC",
+  "trained_at": "2025-08-07T12:13:18.299896",
+  "metrics": {
+    "accuracy": 0.6595744680851063,
+    "precision": 0.6611955420466059,
+    "recall": 0.6595744680851063,
+    "f1": 0.638984214138641,
+    "auc_roc": 0.7222222222222222,
+    "cv_mean": 0.6634423897581792,
+    "cv_std": 0.050121612331357146
+  },
+  "model_path": "/Users/husnain/Downloads/dash-baord/otc-predictor/backend/trained_models/xgboost_NZDCAD_OTC_20250807_121318/model.pkl",
+  "scaler_path": "/Users/husnain/Downloads/dash-baord/otc-predictor/backend/trained_models/xgboost_NZDCAD_OTC_20250807_121318/scaler.pkl",
+  "version": "1.0.0"
+}

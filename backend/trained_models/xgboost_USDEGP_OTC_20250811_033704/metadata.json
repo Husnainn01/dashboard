@@ -1,0 +1,17 @@
+{
+  "algorithm": "xgboost",
+  "trading_pair": "USDEGP OTC",
+  "trained_at": "2025-08-11T03:37:04.587938",
+  "metrics": {
+    "accuracy": 0.7209302325581395,
+    "precision": 0.7246551897714688,
+    "recall": 0.7209302325581395,
+    "f1": 0.721232256115977,
+    "auc_roc": 0.7934782608695652,
+    "cv_mean": 0.620855614973262,
+    "cv_std": 0.06303358973855477
+  },
+  "model_path": "/Users/husnain/Downloads/dash-baord/otc-predictor/backend/trained_models/xgboost_USDEGP_OTC_20250811_033704/model.pkl",
+  "scaler_path": "/Users/husnain/Downloads/dash-baord/otc-predictor/backend/trained_models/xgboost_USDEGP_OTC_20250811_033704/scaler.pkl",
+  "version": "1.0.0"
+}

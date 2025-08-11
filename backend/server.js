@@ -1,3 +1,11 @@
+/*
+ * DEPRECATED: This Node.js server is no longer used.
+ * All services have been consolidated to the Python FastAPI server (prediction_api.py)
+ * which runs on port 5001 and includes WebSocket support.
+ * 
+ * Use: python main.py to start the consolidated backend
+ */
+
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
@@ -9,7 +17,7 @@ const dataRoutes = require('./routes/data'); // Add data routes
 const screenshotRoutes = require('./routes/screenshots'); // Add screenshot routes fix the confilt error 
 
 const app = express();
-const DEFAULT_PORT = process.env.PORT || 5001;
+const DEFAULT_PORT = process.env.PORT || 5002; // Changed to avoid conflict with Python API
 
 console.log('Starting OTC Predictor API Server');
 console.log(`Node environment: ${process.env.NODE_ENV || 'development'}`);

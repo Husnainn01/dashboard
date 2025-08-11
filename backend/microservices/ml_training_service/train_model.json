@@ -1,0 +1,5 @@
+{
+  "trading_pair": "USD/BRL(OTC)",
+  "model_type": "xgboost",
+  "force_retrain": true
+}

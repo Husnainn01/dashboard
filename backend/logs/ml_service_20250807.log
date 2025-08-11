@@ -1,0 +1,226 @@
+2025-08-07 07:36:35,931 - services.ml_prediction_service - INFO - 🚀 Initializing ML Prediction Service...
+2025-08-07 07:36:35,931 - services.ml_prediction_service - INFO - 🔌 Connecting to MongoDB...
+2025-08-07 07:36:38,942 - services.ml_prediction_service - INFO - ✅ MongoDB connected successfully
+2025-08-07 07:36:38,942 - services.ml_prediction_service - ERROR - ❌ Error checking model for USD/BRL(OTC): 'ModelTrainer' object has no attribute 'check_model_exists'
+2025-08-07 07:36:38,944 - services.ml_prediction_service - ERROR - ❌ Error checking model for USD/BRL(OTC): 'ModelTrainer' object has no attribute 'check_model_exists'
+2025-08-07 07:36:38,944 - services.ml_prediction_service - ERROR - ❌ Error checking model for NZD/CAD(OTC): 'ModelTrainer' object has no attribute 'check_model_exists'
+2025-08-07 07:36:38,944 - services.ml_prediction_service - ERROR - ❌ Error checking model for NZD/CAD(OTC): 'ModelTrainer' object has no attribute 'check_model_exists'
+2025-08-07 07:36:38,945 - services.ml_prediction_service - ERROR - ❌ Error checking model for USD/BDT(OTC): 'ModelTrainer' object has no attribute 'check_model_exists'
+2025-08-07 07:36:38,945 - services.ml_prediction_service - ERROR - ❌ Error checking model for USD/BDT(OTC): 'ModelTrainer' object has no attribute 'check_model_exists'
+2025-08-07 07:36:38,945 - services.ml_prediction_service - ERROR - ❌ Error checking model for USD/EGP(OTC): 'ModelTrainer' object has no attribute 'check_model_exists'
+2025-08-07 07:36:38,945 - services.ml_prediction_service - ERROR - ❌ Error checking model for USD/EGP(OTC): 'ModelTrainer' object has no attribute 'check_model_exists'
+2025-08-07 07:36:38,945 - services.ml_prediction_service - INFO - ✅ ML Prediction Service started successfully
+2025-08-07 07:40:37,051 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 07:40:48,631 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 07:40:49,559 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 07:40:49,876 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 07:41:27,013 - services.ml_prediction_service - INFO - 🚀 Initializing ML Prediction Service...
+2025-08-07 07:41:27,013 - services.ml_prediction_service - INFO - 🔌 Connecting to MongoDB...
+2025-08-07 07:41:30,118 - services.ml_prediction_service - INFO - ✅ MongoDB connected successfully
+2025-08-07 07:41:30,122 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BRL(OTC)
+2025-08-07 07:41:30,123 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BRL(OTC)
+2025-08-07 07:41:30,123 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for NZD/CAD(OTC)
+2025-08-07 07:41:30,123 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for NZD/CAD(OTC)
+2025-08-07 07:41:30,123 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BDT(OTC)
+2025-08-07 07:41:30,123 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BDT(OTC)
+2025-08-07 07:41:30,124 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/EGP(OTC)
+2025-08-07 07:41:30,124 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/EGP(OTC)
+2025-08-07 07:41:30,124 - services.ml_prediction_service - INFO - ✅ ML Prediction Service started successfully
+2025-08-07 07:45:24,946 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 07:46:36,026 - services.ml_prediction_service - INFO - 🚀 Initializing ML Prediction Service...
+2025-08-07 07:46:36,026 - services.ml_prediction_service - INFO - 🔌 Connecting to MongoDB...
+2025-08-07 07:46:39,643 - services.ml_prediction_service - INFO - ✅ MongoDB connected successfully
+2025-08-07 07:46:39,644 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BRL(OTC)
+2025-08-07 07:46:39,645 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BRL(OTC)
+2025-08-07 07:46:39,645 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for NZD/CAD(OTC)
+2025-08-07 07:46:39,645 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for NZD/CAD(OTC)
+2025-08-07 07:46:39,645 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BDT(OTC)
+2025-08-07 07:46:39,646 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BDT(OTC)
+2025-08-07 07:46:39,646 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/EGP(OTC)
+2025-08-07 07:46:39,647 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/EGP(OTC)
+2025-08-07 07:46:39,647 - services.ml_prediction_service - INFO - ✅ ML Prediction Service started successfully
+2025-08-07 07:52:52,072 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 07:53:32,583 - services.ml_prediction_service - INFO - 🚀 Initializing ML Prediction Service...
+2025-08-07 07:53:32,584 - services.ml_prediction_service - INFO - 🔌 Connecting to MongoDB...
+2025-08-07 07:53:35,765 - services.ml_prediction_service - INFO - ✅ MongoDB connected successfully
+2025-08-07 07:53:35,767 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BRL(OTC)
+2025-08-07 07:53:35,768 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BRL(OTC)
+2025-08-07 07:53:35,769 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for NZD/CAD(OTC)
+2025-08-07 07:53:35,770 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for NZD/CAD(OTC)
+2025-08-07 07:53:35,770 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BDT(OTC)
+2025-08-07 07:53:35,770 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BDT(OTC)
+2025-08-07 07:53:35,770 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/EGP(OTC)
+2025-08-07 07:53:35,771 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/EGP(OTC)
+2025-08-07 07:53:35,771 - services.ml_prediction_service - INFO - ✅ ML Prediction Service started successfully
+2025-08-07 07:54:54,439 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/BRL(OTC)
+2025-08-07 07:54:54,439 - services.ml_prediction_service - ERROR - ❌ Error scheduling training: 'ModelTrainer' object has no attribute 'train_model'
+2025-08-07 08:00:21,748 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 08:00:46,544 - services.ml_prediction_service - INFO - 🚀 Initializing ML Prediction Service...
+2025-08-07 08:00:46,544 - services.ml_prediction_service - INFO - 🔌 Connecting to MongoDB...
+2025-08-07 08:00:50,601 - services.ml_prediction_service - INFO - ✅ MongoDB connected successfully
+2025-08-07 08:00:50,603 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BRL(OTC)
+2025-08-07 08:00:50,603 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BRL(OTC)
+2025-08-07 08:00:50,604 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for NZD/CAD(OTC)
+2025-08-07 08:00:50,606 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for NZD/CAD(OTC)
+2025-08-07 08:00:50,608 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BDT(OTC)
+2025-08-07 08:00:50,608 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BDT(OTC)
+2025-08-07 08:00:50,609 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/EGP(OTC)
+2025-08-07 08:00:50,609 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/EGP(OTC)
+2025-08-07 08:00:50,609 - services.ml_prediction_service - INFO - ✅ ML Prediction Service started successfully
+2025-08-07 08:01:12,261 - services.ml_prediction_service - INFO - 🧠 Checking data for training model for USD/BRL(OTC)
+2025-08-07 08:12:25,963 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 08:14:23,429 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 08:14:41,968 - services.ml_prediction_service - INFO - 🚀 Initializing ML Prediction Service...
+2025-08-07 08:14:41,968 - services.ml_prediction_service - INFO - 🔌 Connecting to MongoDB...
+2025-08-07 08:14:48,873 - services.ml_prediction_service - INFO - ✅ MongoDB connected successfully
+2025-08-07 08:14:48,874 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BRL(OTC)
+2025-08-07 08:14:48,874 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BRL(OTC)
+2025-08-07 08:14:48,874 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for NZD/CAD(OTC)
+2025-08-07 08:14:48,874 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for NZD/CAD(OTC)
+2025-08-07 08:14:48,874 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BDT(OTC)
+2025-08-07 08:14:48,874 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BDT(OTC)
+2025-08-07 08:14:48,874 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/EGP(OTC)
+2025-08-07 08:14:48,874 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/EGP(OTC)
+2025-08-07 08:14:48,874 - services.ml_prediction_service - INFO - ✅ ML Prediction Service started successfully
+2025-08-07 09:30:43,871 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 09:32:37,138 - services.ml_prediction_service - INFO - 🚀 Initializing ML Prediction Service...
+2025-08-07 09:32:37,139 - services.ml_prediction_service - INFO - 🔌 Connecting to MongoDB...
+2025-08-07 09:32:40,442 - services.ml_prediction_service - INFO - ✅ MongoDB connected successfully
+2025-08-07 09:32:40,443 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BRL(OTC)
+2025-08-07 09:32:40,443 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BRL(OTC)
+2025-08-07 09:32:40,443 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for NZD/CAD(OTC)
+2025-08-07 09:32:40,443 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for NZD/CAD(OTC)
+2025-08-07 09:32:40,443 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BDT(OTC)
+2025-08-07 09:32:40,443 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BDT(OTC)
+2025-08-07 09:32:40,443 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/EGP(OTC)
+2025-08-07 09:32:40,443 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/EGP(OTC)
+2025-08-07 09:32:40,443 - services.ml_prediction_service - INFO - ✅ ML Prediction Service started successfully
+2025-08-07 10:41:46,710 - services.ml_prediction_service - INFO - 🧠 Checking data for training model for USD/BRL(OTC)
+2025-08-07 10:42:31,238 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/BRL(OTC)
+2025-08-07 10:42:31,248 - services.ml_prediction_service - INFO - 🧠 Scheduling training for NZD/CAD(OTC)
+2025-08-07 10:42:31,248 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/BDT(OTC)
+2025-08-07 10:42:31,248 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/EGP(OTC)
+2025-08-07 10:50:29,537 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/BRL(OTC)
+2025-08-07 10:50:29,538 - services.ml_prediction_service - INFO - 🧠 Scheduling training for NZD/CAD(OTC)
+2025-08-07 10:50:29,538 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/BDT(OTC)
+2025-08-07 10:50:29,538 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/EGP(OTC)
+2025-08-07 10:57:00,258 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 10:57:26,821 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 10:57:38,189 - services.ml_prediction_service - INFO - 🚀 Initializing ML Prediction Service...
+2025-08-07 10:57:38,189 - services.ml_prediction_service - INFO - 🔌 Connecting to MongoDB...
+2025-08-07 10:57:41,524 - services.ml_prediction_service - INFO - ✅ MongoDB connected successfully
+2025-08-07 10:57:41,528 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BRL(OTC)
+2025-08-07 10:57:41,529 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BRL(OTC)
+2025-08-07 10:57:41,529 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for NZD/CAD(OTC)
+2025-08-07 10:57:41,530 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for NZD/CAD(OTC)
+2025-08-07 10:57:41,530 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BDT(OTC)
+2025-08-07 10:57:41,530 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BDT(OTC)
+2025-08-07 10:57:41,531 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/EGP(OTC)
+2025-08-07 10:57:41,531 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/EGP(OTC)
+2025-08-07 10:57:41,531 - services.ml_prediction_service - INFO - ✅ ML Prediction Service started successfully
+2025-08-07 10:58:32,380 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/BRL(OTC)
+2025-08-07 10:58:32,381 - services.ml_prediction_service - INFO - 🧠 Scheduling training for NZD/CAD(OTC)
+2025-08-07 10:58:32,381 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/BDT(OTC)
+2025-08-07 10:58:32,381 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/EGP(OTC)
+2025-08-07 11:02:23,285 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/BRL(OTC)
+2025-08-07 11:02:23,285 - services.ml_prediction_service - INFO - 🧠 Scheduling training for NZD/CAD(OTC)
+2025-08-07 11:02:23,285 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/BDT(OTC)
+2025-08-07 11:02:23,285 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/EGP(OTC)
+2025-08-07 11:03:09,458 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 11:03:31,948 - services.ml_prediction_service - INFO - 🚀 Initializing ML Prediction Service...
+2025-08-07 11:03:31,948 - services.ml_prediction_service - INFO - 🔌 Connecting to MongoDB...
+2025-08-07 11:03:35,019 - services.ml_prediction_service - INFO - ✅ MongoDB connected successfully
+2025-08-07 11:03:35,022 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BRL(OTC)
+2025-08-07 11:03:35,023 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BRL(OTC)
+2025-08-07 11:03:35,023 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for NZD/CAD(OTC)
+2025-08-07 11:03:35,032 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for NZD/CAD(OTC)
+2025-08-07 11:03:35,034 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BDT(OTC)
+2025-08-07 11:03:35,034 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BDT(OTC)
+2025-08-07 11:03:35,036 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/EGP(OTC)
+2025-08-07 11:03:35,037 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/EGP(OTC)
+2025-08-07 11:03:35,037 - services.ml_prediction_service - INFO - ✅ ML Prediction Service started successfully
+2025-08-07 11:03:57,985 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/BRL(OTC)
+2025-08-07 11:03:57,986 - services.ml_prediction_service - INFO - 🧠 Scheduling training for NZD/CAD(OTC)
+2025-08-07 11:03:57,986 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/BDT(OTC)
+2025-08-07 11:03:57,986 - services.ml_prediction_service - INFO - 🧠 Scheduling training for USD/EGP(OTC)
+2025-08-07 11:20:11,532 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 11:20:29,620 - services.ml_prediction_service - INFO - 🚀 Initializing ML Prediction Service...
+2025-08-07 11:20:29,620 - services.ml_prediction_service - INFO - 🔌 Connecting to MongoDB...
+2025-08-07 11:20:32,693 - services.ml_prediction_service - INFO - ✅ MongoDB connected successfully
+2025-08-07 11:20:32,695 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BRL(OTC)
+2025-08-07 11:20:32,695 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BRL(OTC)
+2025-08-07 11:20:32,696 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for NZD/CAD(OTC)
+2025-08-07 11:20:32,696 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for NZD/CAD(OTC)
+2025-08-07 11:20:32,697 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BDT(OTC)
+2025-08-07 11:20:32,697 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BDT(OTC)
+2025-08-07 11:20:32,698 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/EGP(OTC)
+2025-08-07 11:20:32,698 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/EGP(OTC)
+2025-08-07 11:20:32,698 - services.ml_prediction_service - INFO - ✅ ML Prediction Service started successfully
+2025-08-07 11:36:23,045 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 11:48:46,043 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 11:49:00,343 - services.ml_prediction_service - INFO - 🚀 Initializing ML Prediction Service...
+2025-08-07 11:49:00,343 - services.ml_prediction_service - INFO - 🔌 Connecting to MongoDB...
+2025-08-07 11:49:03,434 - services.ml_prediction_service - INFO - ✅ MongoDB connected successfully
+2025-08-07 11:49:03,436 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BRL(OTC)
+2025-08-07 11:49:03,437 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BRL(OTC)
+2025-08-07 11:49:03,438 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for NZD/CAD(OTC)
+2025-08-07 11:49:03,439 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for NZD/CAD(OTC)
+2025-08-07 11:49:03,439 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BDT(OTC)
+2025-08-07 11:49:03,440 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BDT(OTC)
+2025-08-07 11:49:03,440 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/EGP(OTC)
+2025-08-07 11:49:03,441 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/EGP(OTC)
+2025-08-07 11:49:03,441 - services.ml_prediction_service - INFO - ✅ ML Prediction Service started successfully
+2025-08-07 12:13:37,930 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 13:56:10,523 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 14:05:39,451 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 14:24:46,493 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...
+2025-08-07 14:25:23,176 - services.ml_prediction_service - INFO - 🚀 Initializing ML Prediction Service...
+2025-08-07 14:25:23,176 - services.ml_prediction_service - INFO - 🔌 Connecting to MongoDB...
+2025-08-07 14:25:28,110 - services.ml_prediction_service - INFO - ✅ MongoDB connected successfully
+2025-08-07 14:25:28,110 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BRL(OTC)
+2025-08-07 14:25:28,110 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BRL(OTC)
+2025-08-07 14:25:28,110 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for NZD/CAD(OTC)
+2025-08-07 14:25:28,110 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for NZD/CAD(OTC)
+2025-08-07 14:25:28,110 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/BDT(OTC)
+2025-08-07 14:25:28,110 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/BDT(OTC)
+2025-08-07 14:25:28,111 - services.ml_prediction_service - WARNING - ⚠️ No xgboost model found for USD/EGP(OTC)
+2025-08-07 14:25:28,111 - services.ml_prediction_service - WARNING - ⚠️ No random_forest model found for USD/EGP(OTC)
+2025-08-07 14:25:28,111 - services.ml_prediction_service - INFO - ✅ ML Prediction Service started successfully
+2025-08-07 14:25:56,203 - services.ml_prediction_service - INFO - 📡 WebSocket client connected. Active connections: 1
+2025-08-07 14:25:56,209 - services.ml_prediction_service - INFO - 📡 ML WebSocket subscription request for: USD/BRL(OTC)
+2025-08-07 14:25:56,210 - services.ml_prediction_service - INFO - ✅ Client subscribed to ML predictions for USD/BRL(OTC)
+2025-08-07 14:25:56,210 - services.ml_prediction_service - ERROR - ❌ Error sending latest prediction: 'MongoDBManager' object has no attribute 'get_latest_prediction'
+2025-08-07 14:25:56,212 - services.ml_prediction_service - INFO - 📡 ML WebSocket subscription request for: USD/BRL(OTC)
+2025-08-07 14:25:56,212 - services.ml_prediction_service - INFO - ✅ Client subscribed to ML predictions for USD/BRL(OTC)
+2025-08-07 14:25:56,212 - services.ml_prediction_service - ERROR - ❌ Error sending latest prediction: 'MongoDBManager' object has no attribute 'get_latest_prediction'
+2025-08-07 14:26:26,969 - services.ml_prediction_service - INFO - 📡 WebSocket client disconnected. Active connections: 0
+2025-08-07 14:26:26,970 - services.ml_prediction_service - INFO - 📡 WebSocket client disconnected. Active connections: 0
+2025-08-07 14:26:29,979 - services.ml_prediction_service - INFO - 📡 WebSocket client connected. Active connections: 1
+2025-08-07 14:26:29,987 - services.ml_prediction_service - INFO - 📡 ML WebSocket subscription request for: USD/BRL(OTC)
+2025-08-07 14:26:29,987 - services.ml_prediction_service - INFO - ✅ Client subscribed to ML predictions for USD/BRL(OTC)
+2025-08-07 14:26:29,987 - services.ml_prediction_service - ERROR - ❌ Error sending latest prediction: 'MongoDBManager' object has no attribute 'get_latest_prediction'
+2025-08-07 14:41:35,244 - services.ml_prediction_service - INFO - 📡 WebSocket client disconnected. Active connections: 0
+2025-08-07 14:41:35,247 - services.ml_prediction_service - INFO - 📡 WebSocket client disconnected. Active connections: 0
+2025-08-07 14:41:39,184 - services.ml_prediction_service - INFO - 📡 WebSocket client connected. Active connections: 1
+2025-08-07 14:41:39,189 - services.ml_prediction_service - INFO - 📡 ML WebSocket subscription request for: USD/BRL(OTC)
+2025-08-07 14:41:39,189 - services.ml_prediction_service - INFO - ✅ Client subscribed to ML predictions for USD/BRL(OTC)
+2025-08-07 14:41:39,189 - services.ml_prediction_service - ERROR - ❌ Error sending latest prediction: 'MongoDBManager' object has no attribute 'get_latest_prediction'
+2025-08-07 14:48:12,048 - services.ml_prediction_service - INFO - 📡 WebSocket client disconnected. Active connections: 0
+2025-08-07 14:48:12,049 - services.ml_prediction_service - INFO - 📡 WebSocket client disconnected. Active connections: 0
+2025-08-07 14:48:15,177 - services.ml_prediction_service - INFO - 📡 WebSocket client connected. Active connections: 1
+2025-08-07 14:48:15,186 - services.ml_prediction_service - INFO - 📡 ML WebSocket subscription request for: USD/BRL(OTC)
+2025-08-07 14:48:15,186 - services.ml_prediction_service - INFO - ✅ Client subscribed to ML predictions for USD/BRL(OTC)
+2025-08-07 14:48:15,186 - services.ml_prediction_service - ERROR - ❌ Error sending latest prediction: 'MongoDBManager' object has no attribute 'get_latest_prediction'
+2025-08-07 14:56:33,651 - services.ml_prediction_service - INFO - 📡 WebSocket client disconnected. Active connections: 0
+2025-08-07 14:56:33,652 - services.ml_prediction_service - INFO - 📡 WebSocket client disconnected. Active connections: 0
+2025-08-07 14:56:36,807 - services.ml_prediction_service - INFO - 📡 WebSocket client connected. Active connections: 1
+2025-08-07 14:56:36,816 - services.ml_prediction_service - INFO - 📡 ML WebSocket subscription request for: USD/BRL(OTC)
+2025-08-07 14:56:36,817 - services.ml_prediction_service - INFO - ✅ Client subscribed to ML predictions for USD/BRL(OTC)
+2025-08-07 14:56:36,817 - services.ml_prediction_service - ERROR - ❌ Error sending latest prediction: 'MongoDBManager' object has no attribute 'get_latest_prediction'
+2025-08-07 15:15:49,778 - services.ml_prediction_service - INFO - 📡 WebSocket client disconnected. Active connections: 0
+2025-08-07 15:15:49,790 - services.ml_prediction_service - INFO - 📡 WebSocket client disconnected. Active connections: 0
+2025-08-07 15:15:53,328 - services.ml_prediction_service - INFO - 📡 WebSocket client connected. Active connections: 1
+2025-08-07 15:15:53,333 - services.ml_prediction_service - INFO - 📡 ML WebSocket subscription request for: USD/BRL(OTC)
+2025-08-07 15:15:53,334 - services.ml_prediction_service - INFO - ✅ Client subscribed to ML predictions for USD/BRL(OTC)
+2025-08-07 15:15:53,334 - services.ml_prediction_service - ERROR - ❌ Error sending latest prediction: 'MongoDBManager' object has no attribute 'get_latest_prediction'
+2025-08-07 15:50:41,525 - services.ml_prediction_service - INFO - 🛑 Received signal 2. Initiating graceful shutdown...

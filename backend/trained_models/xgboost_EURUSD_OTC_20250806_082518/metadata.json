@@ -1,0 +1,17 @@
+{
+  "algorithm": "xgboost",
+  "trading_pair": "EURUSD OTC",
+  "trained_at": "2025-08-06T08:25:18.761735",
+  "metrics": {
+    "accuracy": 0.55,
+    "precision": 0.5458333333333334,
+    "recall": 0.55,
+    "f1": 0.5465473145780051,
+    "auc_roc": 0.7070707070707071,
+    "cv_mean": 0.6208333333333333,
+    "cv_std": 0.07614861201040443
+  },
+  "model_path": "/Users/husnain/Downloads/dash-baord/otc-predictor/backend/trained_models/xgboost_EURUSD_OTC_20250806_082518/model.pkl",
+  "scaler_path": "/Users/husnain/Downloads/dash-baord/otc-predictor/backend/trained_models/xgboost_EURUSD_OTC_20250806_082518/scaler.pkl",
+  "version": "1.0.0"
+}
