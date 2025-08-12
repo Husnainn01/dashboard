@@ -24,33 +24,24 @@ class ModelStorageManager:
     
     def __init__(self):
         """Initialize the model storage manager"""
-        self.storage_type = STORAGE_CONFIG.get("type", "local")
+        # Always use R2 storage - no local storage fallback
+        self.storage_type = "r2"
         
         logger.info(f"🔧 Initializing ModelStorageManager with storage type: {self.storage_type}")
-        logger.info(f"🔧 Storage config: {STORAGE_CONFIG}")
         
-        # Configure storage service
-        if self.storage_type == "local":
-            logger.info(f"📁 Using local storage at {STORAGE_CONFIG.get('local_dir')}")
-            self.storage_service = ModelStorageService(
-                storage_type="local",
-                config={"local_dir": STORAGE_CONFIG.get("local_dir")}
-            )
-        elif self.storage_type == "r2":
-            r2_config = STORAGE_CONFIG.get("r2", {})
-            logger.info(f"☁️ Using R2 storage with bucket {r2_config.get('bucket_name')}")
-            # Redact sensitive information in logs
-            safe_config = r2_config.copy()
-            if 'secret_key' in safe_config:
-                safe_config['secret_key'] = '***REDACTED***'
-            logger.info(f"☁️ R2 config: {safe_config}")
-            
-            self.storage_service = ModelStorageService(
-                storage_type="r2",
-                config=r2_config
-            )
-        else:
-            raise ValueError(f"Unsupported storage type: {self.storage_type}")
+        # Configure R2 storage service
+        r2_config = STORAGE_CONFIG.get("r2", {})
+        logger.info(f"☁️ Using R2 storage with bucket {r2_config.get('bucket_name')}")
+        # Redact sensitive information in logs
+        safe_config = r2_config.copy()
+        if 'secret_key' in safe_config:
+            safe_config['secret_key'] = '***REDACTED***'
+        logger.info(f"☁️ R2 config: {safe_config}")
+        
+        self.storage_service = ModelStorageService(
+            storage_type="r2",
+            config=r2_config
+        )
         
         # Versioning settings
         self.enable_versioning = MODEL_VERSIONING.get("enable_versioning", True)

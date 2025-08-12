@@ -48,12 +48,19 @@ class FeatureEngineer:
         # Feature lookback window - Extended for better pattern recognition
         self.lookback_periods = [5, 8, 13, 21, 34]  # Fibonacci sequence for better pattern detection
         
-        # USD/BRL(OTC) specific parameters
+        # USD/BRL(OTC) specific parameters - Market operates in UTC+7 (Bangkok time)
         self.is_optimized_for_usd_brl = True
         self.market_session_hours = {
-            'asian': (0, 8),    # 00:00-08:00 UTC
-            'european': (8, 16), # 08:00-16:00 UTC
-            'american': (13, 21) # 13:00-21:00 UTC
+            'asian': (17, 1),     # 17:00-01:00 UTC (00:00-08:00 Bangkok time)
+            'european': (1, 9),   # 01:00-09:00 UTC (08:00-16:00 Bangkok time)
+            'american': (6, 14)   # 06:00-14:00 UTC (13:00-21:00 Bangkok time)
+        }
+        
+        # Add USD/BRL(OTC) specific market hours
+        self.brazil_market_hours = {
+            'open': 1,    # 01:00 UTC (08:00 Bangkok time)
+            'close': 9,   # 09:00 UTC (16:00 Bangkok time)
+            'peak': (3, 7)  # 03:00-07:00 UTC (10:00-14:00 Bangkok time)
         }
         
     async def extract_features_from_candles(self, candles: List[Dict], target_next: bool = True) -> pd.DataFrame:
@@ -512,9 +519,20 @@ class FeatureEngineer:
         features['is_euro_american_overlap'] = ((timestamps.dt.hour >= 13) & 
                                               (timestamps.dt.hour < 16)).astype(int)
         
-        # Brazil market hours (BRL specific)
-        features['is_brazil_market_open'] = ((timestamps.dt.hour >= 13) & 
-                                           (timestamps.dt.hour < 20)).astype(int)
+        # Brazil market hours (BRL specific) - UTC+7 timezone
+        features['is_brazil_market_open'] = ((timestamps.dt.hour >= self.brazil_market_hours['open']) & 
+                                           (timestamps.dt.hour < self.brazil_market_hours['close'])).astype(int)
+        
+        # Brazil market peak hours (highest liquidity)
+        features['is_brazil_peak_hours'] = ((timestamps.dt.hour >= self.brazil_market_hours['peak'][0]) & 
+                                           (timestamps.dt.hour < self.brazil_market_hours['peak'][1])).astype(int)
+        
+        # Pre and post Brazil market hours
+        features['is_pre_brazil_open'] = ((timestamps.dt.hour >= (self.brazil_market_hours['open'] - 2)) & 
+                                         (timestamps.dt.hour < self.brazil_market_hours['open'])).astype(int)
+        
+        features['is_post_brazil_close'] = ((timestamps.dt.hour >= self.brazil_market_hours['close']) & 
+                                           (timestamps.dt.hour < (self.brazil_market_hours['close'] + 2))).astype(int)
         
         # Day of week (0=Monday, 6=Sunday)
         features['day_of_week'] = timestamps.dt.dayofweek.values
@@ -532,12 +550,18 @@ class FeatureEngineer:
         features['is_month_start'] = (timestamps.dt.day <= 5).astype(int)
         features['is_month_end'] = (timestamps.dt.day >= 25).astype(int)
         
-        # Time of day segments
-        hour = timestamps.dt.hour
-        features['is_morning'] = ((hour >= 8) & (hour < 12)).astype(int)
-        features['is_afternoon'] = ((hour >= 12) & (hour < 17)).astype(int)
-        features['is_evening'] = ((hour >= 17) & (hour < 21)).astype(int)
-        features['is_night'] = ((hour >= 21) | (hour < 8)).astype(int)
+        # Time of day segments - Adjusted for Bangkok timezone (UTC+7)
+        # Convert UTC hour to Bangkok hour for local time features
+        bangkok_hour = (timestamps.dt.hour + 7) % 24
+        
+        features['is_morning'] = ((bangkok_hour >= 8) & (bangkok_hour < 12)).astype(int)
+        features['is_afternoon'] = ((bangkok_hour >= 12) & (bangkok_hour < 17)).astype(int)
+        features['is_evening'] = ((bangkok_hour >= 17) & (bangkok_hour < 21)).astype(int)
+        features['is_night'] = ((bangkok_hour >= 21) | (bangkok_hour < 8)).astype(int)
+        
+        # Bangkok-specific time features
+        features['is_bangkok_business_hours'] = ((bangkok_hour >= 9) & (bangkok_hour < 18)).astype(int)
+        features['is_bangkok_lunch_hours'] = ((bangkok_hour >= 12) & (bangkok_hour < 13)).astype(int)
         
         # Day of month (can capture patterns around salary payments, etc.)
         features['day_of_month'] = timestamps.dt.day.values

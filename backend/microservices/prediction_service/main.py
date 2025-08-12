@@ -159,9 +159,11 @@ async def initialize_service():
     # Initialize feature engineer
     feature_engineer = FeatureEngineer(mongodb_manager)
     
-    # Initialize model storage manager
+    # Initialize model storage manager with R2 storage only
+    # Force R2 storage type
+    STORAGE_CONFIG["type"] = "r2"
     model_storage_manager = ModelStorageManager()
-    logger.info(f"✅ Model storage initialized with type: {STORAGE_CONFIG.get('type', 'local')}")
+    logger.info(f"✅ Model storage initialized with type: R2 (cloud storage)")
     
     # Initialize model trainer with R2 support
     model_trainer = ModelTrainerR2(mongodb_manager)
@@ -430,18 +432,41 @@ async def get_status():
     """Get service status"""
     global prediction_service_state
     
-    # Add current time
-    current_time = datetime.now()
-    uptime = None
-    
-    if prediction_service_state["started_at"]:
-        uptime = (current_time - prediction_service_state["started_at"]).total_seconds()
-    
-    return {
-        **prediction_service_state,
-        "current_time": current_time.isoformat(),
-        "uptime_seconds": uptime
-    }
+    try:
+        # Add current time
+        current_time = datetime.now()
+        uptime = None
+        
+        if prediction_service_state["started_at"]:
+            uptime = (current_time - prediction_service_state["started_at"]).total_seconds()
+        
+        # Create a JSON-serializable copy of the state
+        status_data = {
+            "is_running": prediction_service_state["is_running"],
+            "started_at": prediction_service_state["started_at"].isoformat() if prediction_service_state["started_at"] else None,
+            "predictions_made": prediction_service_state["predictions_made"],
+            "last_prediction": prediction_service_state["last_prediction"],
+            "active_models": prediction_service_state["active_models"],
+            "active_pairs": list(prediction_service_state["active_pairs"]),  # Convert set to list
+            "priority_pair": prediction_service_state["priority_pair"],
+            "model_cache_size": len(prediction_service_state.get("model_cache", {})),
+            "feature_cache_size": len(prediction_service_state.get("feature_cache", {})),
+            "current_time": current_time.isoformat(),
+            "uptime_seconds": uptime
+        }
+        
+        logger.info(f"📊 Status endpoint called - Service running: {status_data['is_running']}, Active pairs: {len(status_data['active_pairs'])}")
+        return status_data
+        
+    except Exception as e:
+        logger.error(f"❌ Error in status endpoint: {str(e)}")
+        # Return a basic status even if there's an error
+        return {
+            "error": "Status retrieval failed",
+            "error_details": str(e),
+            "is_running": prediction_service_state.get("is_running", False),
+            "current_time": datetime.now().isoformat()
+        }
 
 @app.post("/predict", response_model=PredictionResponse)
 async def make_prediction(request: PredictionRequest):
@@ -482,9 +507,9 @@ async def make_prediction(request: PredictionRequest):
                 missing_features = [f for f in model_features if f not in current_features]
                 if missing_features:
                     logger.warning(f"⚠️ Missing features in prediction data: {missing_features}")
-                    # Add missing features with zeros
-                    for feature in missing_features:
-                        features[feature] = 0.0
+                    # Add missing features with zeros (more efficiently)
+                    missing_df = pd.DataFrame(0.0, index=features.index, columns=missing_features)
+                    features = pd.concat([features, missing_df], axis=1)
                 
                 # Check for extra features
                 extra_features = [f for f in current_features if f not in model_features]
@@ -500,8 +525,67 @@ async def make_prediction(request: PredictionRequest):
         
         # Scale features if scaler is available
         if scaler is not None:
-            logger.info(f"🔍 Scaling features with scaler")
-            features_scaled = scaler.transform(features)
+            try:
+                # Log detailed information about features and scaler
+                feature_count = features.shape[1]
+                logger.info(f"🔍 Scaling features with scaler: {feature_count} features in data")
+                
+                # Log scaler attributes for debugging
+                if hasattr(scaler, 'n_features_in_'):
+                    logger.info(f"🔍 Scaler expects {scaler.n_features_in_} features")
+                if hasattr(scaler, 'mean_'):
+                    logger.info(f"🔍 Scaler mean shape: {scaler.mean_.shape}")
+                if hasattr(scaler, 'scale_'):
+                    logger.info(f"🔍 Scaler scale shape: {scaler.scale_.shape}")
+                
+                # Check if scaler dimensions match feature dimensions
+                if hasattr(scaler, 'n_features_in_') and scaler.n_features_in_ != feature_count:
+                    logger.warning(f"⚠️ Feature count mismatch: scaler expects {scaler.n_features_in_} features but got {feature_count}")
+                    # Adjust scaler dimensions to match features
+                    logger.info(f"🔧 Adjusting scaler dimensions to match feature count")
+                    scaler.mean_ = np.zeros(feature_count)
+                    scaler.scale_ = np.ones(feature_count)
+                    scaler.var_ = np.ones(feature_count)
+                    scaler.n_features_in_ = feature_count
+                    if hasattr(scaler, 'n_samples_seen_'):
+                        logger.info(f"🔧 Preserving n_samples_seen_: {scaler.n_samples_seen_}")
+                    else:
+                        logger.info(f"🔧 Adding n_samples_seen_ attribute")
+                        scaler.n_samples_seen_ = 100
+                
+                # Try to transform features
+                features_scaled = scaler.transform(features)
+                logger.info(f"✅ Features scaled successfully")
+                
+            except Exception as e:
+                logger.warning(f"⚠️ Error using scaler: {str(e)}")
+                
+                try:
+                    # If the scaler is not fitted or has other issues, create a new one
+                    logger.info(f"🔧 Creating new StandardScaler as fallback")
+                    from sklearn.preprocessing import StandardScaler
+                    
+                    # Create a new scaler
+                    scaler = StandardScaler()
+                    
+                    # Fit with current features
+                    logger.info(f"🔧 Fitting new scaler with current features ({features.shape})")
+                    scaler.fit(features)
+                    
+                    # Transform the features
+                    features_scaled = scaler.transform(features)
+                    logger.info(f"✅ Features scaled successfully with new scaler")
+                    
+                    # Log detailed information about the new scaler
+                    logger.info(f"🔍 New scaler attributes: n_features_in_={scaler.n_features_in_}, " +
+                               f"n_samples_seen_={getattr(scaler, 'n_samples_seen_', 'N/A')}")
+                    logger.info(f"🔍 New scaler mean shape: {scaler.mean_.shape}, scale shape: {scaler.scale_.shape}")
+                    
+                except Exception as inner_e:
+                    # If all scaling attempts fail, use unscaled features
+                    logger.error(f"❌ Failed to create fallback scaler: {str(inner_e)}")
+                    logger.warning(f"⚠️ Using unscaled features as last resort")
+                    features_scaled = features.values
         else:
             logger.warning(f"⚠️ No scaler available, using unscaled features")
             features_scaled = features.values
@@ -556,6 +640,13 @@ async def make_prediction(request: PredictionRequest):
                             missing_features = np.zeros(missing_shape)
                             features_scaled = np.hstack((features_scaled, missing_features))
                             logger.info(f"✅ Added {expected_features - actual_features} missing features")
+                            
+                            # Log detailed information about the feature mismatch
+                            if hasattr(model, 'feature_names_in_'):
+                                logger.info(f"🔍 Model expects these features: {model.feature_names_in_}")
+                                if hasattr(features, 'columns'):
+                                    missing_feature_names = [f for f in model.feature_names_in_ if f not in features.columns]
+                                    logger.info(f"🔍 Missing features: {missing_feature_names}")
                         
                         # If we have too many features, truncate
                         elif expected_features < actual_features:
@@ -584,6 +675,14 @@ async def make_prediction(request: PredictionRequest):
                             features_scaled = np.hstack((features_scaled, missing_features))
                         
                         logger.info(f"✅ Added {expected_features - actual_features} missing features")
+                        
+                        # Log detailed information about the feature mismatch
+                        if hasattr(model, 'feature_names_in_'):
+                            logger.info(f"🔍 Model expects {len(model.feature_names_in_)} features")
+                            if hasattr(features, 'columns'):
+                                missing_feature_names = [f for f in model.feature_names_in_ if f not in features.columns]
+                                if missing_feature_names:
+                                    logger.info(f"🔍 Missing features: {missing_feature_names[:10]}... (showing first 10)")
                     
                     # If we have too many features, truncate
                     elif expected_features < actual_features:
@@ -628,6 +727,9 @@ async def make_prediction(request: PredictionRequest):
         # Check confidence threshold
         if confidence < PREDICTION_CONFIDENCE_THRESHOLD:
             logger.warning(f"⚠️ Low confidence prediction: {confidence:.3f}")
+            logger.info(f"🔍 Confidence threshold: {PREDICTION_CONFIDENCE_THRESHOLD}")
+            model_name = metadata.get('model_name', 'unknown')
+            logger.info(f"🔍 Model used: {model_name}, Probability: {probability:.3f}, Direction: {'up' if probability > 0.5 else 'down'}")
         
         # Create prediction object
         prediction_data = PredictionData(
@@ -685,9 +787,9 @@ async def quick_prediction_by_query(trading_pair: str, model_type: str = None):
     request = PredictionRequest(trading_pair=trading_pair, model_type=model_type)
     return await make_prediction(request)
 
-@app.post("/subscribe/{trading_pair}")
+@app.post("/subscribe")
 async def subscribe_to_pair(trading_pair: str):
-    """Subscribe to a trading pair for predictions"""
+    """Subscribe to a trading pair for predictions using query parameter"""
     global prediction_service_state
     
     prediction_service_state["active_pairs"].add(trading_pair)
@@ -700,9 +802,9 @@ async def subscribe_to_pair(trading_pair: str):
         "active_pairs": list(prediction_service_state["active_pairs"])
     }
 
-@app.post("/unsubscribe/{trading_pair}")
+@app.post("/unsubscribe")
 async def unsubscribe_from_pair(trading_pair: str):
-    """Unsubscribe from a trading pair"""
+    """Unsubscribe from a trading pair using query parameter"""
     global prediction_service_state
     
     if trading_pair in prediction_service_state["active_pairs"]:
@@ -722,9 +824,9 @@ async def unsubscribe_from_pair(trading_pair: str):
         "active_pairs": list(prediction_service_state["active_pairs"])
     }
 
-@app.post("/set-priority/{trading_pair}")
+@app.post("/set-priority")
 async def set_priority_pair(trading_pair: str):
-    """Set a trading pair as the priority pair"""
+    """Set a trading pair as the priority pair using query parameter"""
     global prediction_service_state
     
     # Make sure the pair is subscribed
@@ -981,6 +1083,7 @@ async def run_continuous_predictions():
             
             # Wait until the next candle is available (respect 1-minute timeframe)
             # Calculate time until next minute starts plus a buffer to ensure the candle is complete
+            # Note: System operates in UTC, but market hours are adjusted for Bangkok timezone (UTC+7) in feature engineering
             now = datetime.now()
             
             # For 1-minute candles, we want to generate predictions right after the candle completes

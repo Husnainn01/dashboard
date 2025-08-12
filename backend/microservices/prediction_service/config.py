@@ -28,6 +28,17 @@ ENSEMBLE_PREDICTION = True  # Use ensemble prediction (combine multiple models)
 PREDICTION_HISTORY_LENGTH = 10  # Number of past predictions to keep for trend analysis
 TECHNICAL_INDICATORS_WEIGHT = 0.7  # Weight for technical indicators vs price action
 
+# Market Timezone Configuration for USD/BRL(OTC)
+# System operates in UTC, but market hours are adjusted for Bangkok timezone (UTC+7)
+MARKET_TIMEZONE_OFFSET = int(os.environ.get("MARKET_TIMEZONE_OFFSET", "7"))  # UTC+7 for Bangkok
+MARKET_TIMEZONE_NAME = os.environ.get("MARKET_TIMEZONE_NAME", "Asia/Bangkok")
+BRAZIL_MARKET_HOURS = {
+    "open_utc": 1,    # 01:00 UTC (08:00 Bangkok time)
+    "close_utc": 9,   # 09:00 UTC (16:00 Bangkok time)
+    "peak_start_utc": 3,  # 03:00 UTC (10:00 Bangkok time)
+    "peak_end_utc": 7,    # 07:00 UTC (14:00 Bangkok time)
+}
+
 # R2 Storage Configuration
 R2_CONFIG = {
     "access_key": os.environ.get("R2_ACCESS_KEY", "d9a6fe72723211dee3e123b32a25ebba"),

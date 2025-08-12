@@ -119,28 +119,34 @@ class ConnectionManager:
                     # No one is subscribed to this pair anymore
                     try:
                         config = service_config["prediction"]
-                        unsubscribe_url = f"http://{config['host']}:{config['port']}/unsubscribe/{pair}"
+                        unsubscribe_url = f"http://{config['host']}:{config['port']}/unsubscribe"
                         
-                        async with httpx.AsyncClient(timeout=5.0) as client:
-                            response = await client.post(unsubscribe_url)
+                        async with httpx.AsyncClient(timeout=30.0) as client:
+                            response = await client.post(unsubscribe_url, params={"trading_pair": pair})
                             if response.status_code == 200:
                                 logger.info(f"✅ Unsubscribed from {pair} in prediction service after client disconnect")
+                            else:
+                                logger.error(f"❌ Failed to unsubscribe from {pair} in prediction service: {response.status_code}")
                     except Exception as e:
                         logger.error(f"❌ Error unsubscribing from prediction service: {str(e)}")
+                        logger.error(f"❌ Error type: {type(e).__name__}")
             
             # If there are still other pairs, set one as priority
             if all_subscribed_pairs:
                 try:
                     config = service_config["prediction"]
                     new_priority = next(iter(all_subscribed_pairs))
-                    priority_url = f"http://{config['host']}:{config['port']}/set-priority/{new_priority}"
+                    priority_url = f"http://{config['host']}:{config['port']}/set-priority"
                     
-                    async with httpx.AsyncClient(timeout=5.0) as client:
-                        priority_response = await client.post(priority_url)
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        priority_response = await client.post(priority_url, params={"trading_pair": new_priority})
                         if priority_response.status_code == 200:
                             logger.info(f"✅ Set {new_priority} as new priority pair in prediction service after client disconnect")
+                        else:
+                            logger.error(f"❌ Failed to set priority pair {new_priority}: {priority_response.status_code}")
                 except Exception as e:
                     logger.error(f"❌ Error setting priority pair: {str(e)}")
+                    logger.error(f"❌ Error type: {type(e).__name__}")
     
     async def send_personal_message(self, message: dict, websocket: WebSocket):
         try:
@@ -561,24 +567,27 @@ async def websocket_predictions(websocket: WebSocket):
                     # Also subscribe in the prediction service
                     try:
                         config = service_config["prediction"]
-                        subscribe_url = f"http://{config['host']}:{config['port']}/subscribe/{trading_pair}"
+                        subscribe_url = f"http://{config['host']}:{config['port']}/subscribe"
                         
-                        async with httpx.AsyncClient(timeout=5.0) as client:
-                            response = await client.post(subscribe_url)
+                        async with httpx.AsyncClient(timeout=30.0) as client:
+                            response = await client.post(subscribe_url, params={"trading_pair": trading_pair})
                             if response.status_code == 200:
                                 logger.info(f"✅ Subscribed to {trading_pair} in prediction service")
                                 
                                 # If this is the only active subscription, also set it as priority
                                 active_pairs = len(manager.get_subscribed_pairs())
                                 if active_pairs == 1:
-                                    priority_url = f"http://{config['host']}:{config['port']}/set-priority/{trading_pair}"
-                                    priority_response = await client.post(priority_url)
+                                    priority_url = f"http://{config['host']}:{config['port']}/set-priority"
+                                    priority_response = await client.post(priority_url, params={"trading_pair": trading_pair})
                                     if priority_response.status_code == 200:
                                         logger.info(f"✅ Set {trading_pair} as priority pair in prediction service")
                             else:
                                 logger.error(f"❌ Failed to subscribe to {trading_pair} in prediction service: {response.status_code}")
+                                logger.error(f"❌ Response: {response.text}")
                     except Exception as e:
                         logger.error(f"❌ Error subscribing to prediction service: {str(e)}")
+                        logger.error(f"❌ Error type: {type(e).__name__}")
+                        logger.error(f"❌ Full error details: {repr(e)}")
                     
                     # Send confirmation
                     await manager.send_personal_message({
@@ -651,22 +660,24 @@ async def websocket_predictions(websocket: WebSocket):
                         # No one is subscribed to this pair anymore, unsubscribe from prediction service
                         try:
                             config = service_config["prediction"]
-                            unsubscribe_url = f"http://{config['host']}:{config['port']}/unsubscribe/{trading_pair}"
+                            unsubscribe_url = f"http://{config['host']}:{config['port']}/unsubscribe"
                             
-                            async with httpx.AsyncClient(timeout=5.0) as client:
-                                response = await client.post(unsubscribe_url)
+                            async with httpx.AsyncClient(timeout=30.0) as client:
+                                response = await client.post(unsubscribe_url, params={"trading_pair": trading_pair})
                                 if response.status_code == 200:
                                     logger.info(f"✅ Unsubscribed from {trading_pair} in prediction service")
                                 else:
                                     logger.error(f"❌ Failed to unsubscribe from {trading_pair} in prediction service: {response.status_code}")
+                                    logger.error(f"❌ Response: {response.text}")
                                     
                             # If there are other pairs, set one as priority
                             if all_subscribed_pairs:
                                 new_priority = next(iter(all_subscribed_pairs))
-                                priority_url = f"http://{config['host']}:{config['port']}/set-priority/{new_priority}"
-                                priority_response = await client.post(priority_url)
-                                if priority_response.status_code == 200:
-                                    logger.info(f"✅ Set {new_priority} as new priority pair in prediction service")
+                                priority_url = f"http://{config['host']}:{config['port']}/set-priority"
+                                async with httpx.AsyncClient(timeout=30.0) as priority_client:
+                                    priority_response = await priority_client.post(priority_url, params={"trading_pair": new_priority})
+                                    if priority_response.status_code == 200:
+                                        logger.info(f"✅ Set {new_priority} as new priority pair in prediction service")
                         except Exception as e:
                             logger.error(f"❌ Error unsubscribing from prediction service: {str(e)}")
                     

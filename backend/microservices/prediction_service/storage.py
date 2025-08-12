@@ -134,11 +134,8 @@ class ModelStorageService:
         metadata["storage_type"] = self.storage_type
         metadata["saved_at"] = datetime.now().isoformat()
         
-        # Save to appropriate storage
-        if self.storage_type == "local":
-            return await self._save_local(model_data, metadata, model_id)
-        elif self.storage_type == "r2":
-            return await self._save_r2(model_data, metadata, model_id)
+        # Always use R2 storage - no local storage fallback
+        return await self._save_r2(model_data, metadata, model_id)
     
     async def _save_local(self, 
                          model_data: Any, 
@@ -263,10 +260,8 @@ class ModelStorageService:
         Returns:
             Tuple of (model, scaler, metadata)
         """
-        if self.storage_type == "local":
-            return await self._load_local(model_id, version)
-        elif self.storage_type == "r2":
-            return await self._load_r2(model_id, version)
+        # Always use R2 storage - no local storage fallback
+        return await self._load_r2(model_id, version)
     
     async def _load_local(self, model_id: str, version: str = None) -> Tuple[Any, Any, Dict[str, Any]]:
         """Load model from local filesystem"""
@@ -295,6 +290,27 @@ class ModelStorageService:
                 logger.info(f"✅ Scaler loaded from local storage: {model_id}")
             else:
                 logger.warning(f"⚠️ No scaler found for model {model_id}")
+                # Create a more robust default StandardScaler
+                from sklearn.preprocessing import StandardScaler
+                import numpy as np
+                logger.info(f"🔧 Creating robust default StandardScaler for model {model_id}")
+                
+                # Default feature count - will be adjusted in prediction service
+                default_feature_count = 350  # Set high enough for most feature sets
+                
+                scaler = StandardScaler()
+                
+                # Initialize with identity transformation for multiple features
+                scaler.mean_ = np.zeros(default_feature_count)
+                scaler.scale_ = np.ones(default_feature_count)
+                scaler.var_ = np.ones(default_feature_count)
+                scaler.n_features_in_ = default_feature_count
+                scaler.n_samples_seen_ = 100  # Required attribute for sklearn 0.24+
+                
+                # Log detailed information for debugging
+                logger.info(f"🔧 Initialized default scaler with {default_feature_count} features")
+                logger.info(f"🔧 Scaler attributes: n_features_in_={scaler.n_features_in_}, n_samples_seen_={scaler.n_samples_seen_}")
+                logger.info(f"🔧 Scaler mean shape: {scaler.mean_.shape}, scale shape: {scaler.scale_.shape}")
             
             logger.info(f"✅ Model loaded from local storage: {model_id}")
             return model, scaler, metadata
@@ -379,6 +395,27 @@ class ModelStorageService:
                 logger.info(f"✅ Scaler loaded from R2 storage: {model_id}")
             except Exception as e:
                 logger.warning(f"⚠️ No scaler found for model {model_id}: {str(e)}")
+                # Create a more robust default StandardScaler
+                from sklearn.preprocessing import StandardScaler
+                import numpy as np
+                logger.info(f"🔧 Creating robust default StandardScaler for model {model_id}")
+                
+                # Default feature count - will be adjusted in prediction service
+                default_feature_count = 350  # Set high enough for most feature sets
+                
+                scaler = StandardScaler()
+                
+                # Initialize with identity transformation for multiple features
+                scaler.mean_ = np.zeros(default_feature_count)
+                scaler.scale_ = np.ones(default_feature_count)
+                scaler.var_ = np.ones(default_feature_count)
+                scaler.n_features_in_ = default_feature_count
+                scaler.n_samples_seen_ = 100  # Required attribute for sklearn 0.24+
+                
+                # Log detailed information for debugging
+                logger.info(f"🔧 Initialized default scaler with {default_feature_count} features")
+                logger.info(f"🔧 Scaler attributes: n_features_in_={scaler.n_features_in_}, n_samples_seen_={scaler.n_samples_seen_}")
+                logger.info(f"🔧 Scaler mean shape: {scaler.mean_.shape}, scale shape: {scaler.scale_.shape}")
             
             logger.info(f"✅ Model loaded from R2 storage: {model_id}")
             return model, scaler, metadata
@@ -398,10 +435,8 @@ class ModelStorageService:
         Returns:
             List of model metadata
         """
-        if self.storage_type == "local":
-            return await self._list_local_models(trading_pair, algorithm)
-        elif self.storage_type == "r2":
-            return await self._list_r2_models(trading_pair, algorithm)
+        # Always use R2 storage - no local storage fallback
+        return await self._list_r2_models(trading_pair, algorithm)
     
     async def _list_local_models(self, trading_pair: str = None, algorithm: str = None) -> list:
         """List models in local filesystem"""

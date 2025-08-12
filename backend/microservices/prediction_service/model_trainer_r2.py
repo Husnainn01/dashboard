@@ -36,6 +36,10 @@ class ModelTrainerR2(BaseModelTrainer):
         self.cv_folds = 5      # Cross-validation folds
         self.is_optimized_for_usd_brl = True  # Flag for USD/BRL specific optimizations
         
+        # Always use R2 storage
+        from config import STORAGE_CONFIG
+        STORAGE_CONFIG["type"] = "r2"  # Force R2 storage
+        
     async def list_trained_models(self) -> List[Dict]:
         """List all trained models with their metadata"""
         if self.model_storage_manager:
