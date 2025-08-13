@@ -149,13 +149,21 @@ class DataCollector:
             try:
                 # Now connect normally - the Login class will use the correct domain
                 try:
-                    check_connect, message = await self.client.connect()
+                    try:
+                        check_connect, message = await self.client.connect()
+                    except SystemExit:
+                        self.logger.error("❌ PyQuotex login attempted to exit the application")
+                        return False, "Login failed with SystemExit"
                 except json.JSONDecodeError as json_err:
                     self.logger.error(f"❌ JSON parsing error during connection: {str(json_err)}")
                     # Wait a moment and retry once
                     self.logger.info("🔄 Retrying connection after JSON error...")
                     await asyncio.sleep(3)
-                    check_connect, message = await self.client.connect()
+                    try:
+                        check_connect, message = await self.client.connect()
+                    except SystemExit:
+                        self.logger.error("❌ PyQuotex login attempted to exit the application")
+                        return False, "Login failed with SystemExit"
             finally:
                 # Restore original values (good practice)
                 Login.base_url = original_base_url

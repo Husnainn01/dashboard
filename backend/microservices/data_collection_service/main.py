@@ -229,13 +229,28 @@ class ContinuousDataService:
             try:
                 logger.info(f"🔌 Connecting to PyQuotex (attempt {attempt + 1}/{self.max_reconnect_attempts})...")
                 
-                if await self.collector.connect():
-                    logger.info("✅ Connected to PyQuotex successfully")
-                    self.stats['reconnection_attempts'] = 0
-                    
-                    # Check which pairs are actually available
-                    available_pairs = await self.collector.get_available_pairs()
-                    logger.info(f"📊 Available pairs in PyQuotex: {available_pairs}")
+                try:
+                    connect_result, message = await self.collector.connect()
+                    if connect_result:
+                        logger.info("✅ Connected to PyQuotex successfully")
+                        self.stats['reconnection_attempts'] = 0
+                        
+                        # Check which pairs are actually available
+                        try:
+                            available_pairs = await self.collector.get_available_pairs()
+                            logger.info(f"📊 Available pairs in PyQuotex: {available_pairs}")
+                        except Exception as e:
+                            logger.error(f"❌ Error getting available pairs: {str(e)}")
+                            # Continue even if we can't get available pairs
+                            available_pairs = []
+                    else:
+                        logger.error(f"❌ Failed to connect to PyQuotex: {message}")
+                        await asyncio.sleep(self.reconnect_delay)
+                        continue
+                except Exception as e:
+                    logger.error(f"❌ Exception during PyQuotex connection: {str(e)}")
+                    await asyncio.sleep(self.reconnect_delay)
+                    continue
                     
                     # Filter trading pairs to only include available ones
                     filtered_pairs = []
@@ -424,10 +439,28 @@ class ContinuousDataService:
         self.is_running = True
         self.stats['service_started'] = datetime.now()
         
-        # Initial connection
-        if not await self.connect_to_pyquotex():
-            logger.error("❌ Failed initial connection. Service cannot start.")
-            return
+        # Initial connection with retry logic
+        connection_attempts = 0
+        max_initial_attempts = 5
+        
+        while connection_attempts < max_initial_attempts:
+            try:
+                connection_attempts += 1
+                logger.info(f"🔄 Initial connection attempt {connection_attempts}/{max_initial_attempts}")
+                
+                if await self.connect_to_pyquotex():
+                    logger.info("✅ Initial connection successful")
+                    break
+                else:
+                    logger.warning(f"⚠️ Initial connection failed, retrying in {self.reconnect_delay} seconds...")
+                    await asyncio.sleep(self.reconnect_delay)
+            except Exception as e:
+                logger.error(f"❌ Error during initial connection: {str(e)}")
+                await asyncio.sleep(self.reconnect_delay)
+        
+        if connection_attempts >= max_initial_attempts:
+            logger.error("❌ Failed all initial connection attempts. Service will continue running but in limited mode.")
+            # Don't return - instead continue with limited functionality
         
         # Collect historical data on startup if enabled
         if self.is_optimized_for_usd_brl and self.historical_data_days > 0:
