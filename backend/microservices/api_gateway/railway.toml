@@ -1,6 +1,6 @@
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "microservices/api_gateway/Dockerfile"
+dockerfilePath = "backend/microservices/api_gateway/Dockerfile"
 
 [deploy]
 startCommand = "python main.py"

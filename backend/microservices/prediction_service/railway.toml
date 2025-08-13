@@ -1,6 +1,6 @@
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+dockerfilePath = "backend/microservices/prediction_service/Dockerfile"
 
 [deploy]
 startCommand = "python main.py"

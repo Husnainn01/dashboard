@@ -1,6 +1,6 @@
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+dockerfilePath = "backend/microservices/ml_training_service/Dockerfile"
 
 [deploy]
 startCommand = "python main.py"
