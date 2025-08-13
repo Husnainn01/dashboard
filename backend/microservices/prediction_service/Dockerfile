@@ -3,22 +3,23 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Install system dependencies for ML libraries
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     build-essential \
     libgomp1 \
     wget \
+    ca-certificates \
+    automake autoconf libtool \
     && rm -rf /var/lib/apt/lists/*
 
-# Install TA-Lib
-RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
-    tar -xzf ta-lib-0.4.0-src.tar.gz && \
-    cd ta-lib/ && \
+# Install TA-Lib (build from GitHub master to include latest functions)
+RUN git clone --depth 1 https://github.com/TA-Lib/ta-lib.git && \
+    cd ta-lib && \
+    autoreconf -vfi && \
     ./configure --prefix=/usr && \
-    make && \
+    make -j$(nproc) && \
     make install && \
-    cd .. && \
-    rm -rf ta-lib ta-lib-0.4.0-src.tar.gz
+    cd .. && rm -rf ta-lib
 
 # Copy requirements first for better caching
 COPY microservices/prediction_service/requirements.txt /app/requirements.txt
