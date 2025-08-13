@@ -2,20 +2,21 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Copy shared dependencies first for better caching
-COPY requirements.txt /app/requirements.txt
+# Install system dependencies for ML libraries
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching
+COPY microservices/prediction_service/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Copy the service code and shared modules
+COPY microservices/prediction_service /app/microservices/prediction_service/
+COPY database /app/database/
+COPY ml_models /app/ml_models/
 COPY config.py /app/
-
-# Copy shared modules that all services need
-COPY ml_models/ /app/ml_models/
-COPY database/ /app/database/
-COPY services/ /app/services/
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy the specific service code
-COPY microservices/prediction_service/ /app/microservices/prediction_service/
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/trained_models
@@ -23,6 +24,8 @@ RUN mkdir -p /app/logs /app/trained_models
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
+ENV STORAGE_TYPE=r2
+ENV USE_CLOUD_STORAGE=true
 
 # Expose the service port
 EXPOSE 5003

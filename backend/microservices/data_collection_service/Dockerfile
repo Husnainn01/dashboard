@@ -2,20 +2,15 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Copy shared dependencies first for better caching
-COPY requirements.txt /app/requirements.txt
-COPY config.py /app/
-
-# Copy shared modules that all services need
-COPY ml_models/ /app/ml_models/
-COPY database/ /app/database/
-COPY services/ /app/services/
-
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+COPY microservices/data_collection_service/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy the specific service code
-COPY microservices/data_collection_service/ /app/microservices/data_collection_service/
+# Copy the service code and shared modules
+COPY microservices/data_collection_service /app/microservices/data_collection_service/
+COPY data_collection /app/data_collection/
+COPY database /app/database/
+COPY config.py /app/
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/trained_models
@@ -25,7 +20,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
 # Expose the service port
-EXPOSE 5001
+EXPOSE 5008
 
 # Set working directory to service directory
 WORKDIR /app/microservices/data_collection_service

@@ -2,20 +2,14 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Copy shared dependencies first for better caching
+# Copy requirements first for better caching
 COPY requirements.txt /app/requirements.txt
-COPY config.py /app/
-
-# Copy shared modules that all services need
-COPY ml_models/ /app/ml_models/
-COPY database/ /app/database/
-COPY services/ /app/services/
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the specific service code
-COPY microservices/api_gateway/ /app/microservices/api_gateway/
+# Copy the service code and shared modules
+COPY microservices/api_gateway /app/microservices/api_gateway/
+COPY config.py /app/
+COPY microservices/api_gateway/config.py /app/microservices/api_gateway/
 
 # Create necessary directories
 RUN mkdir -p /app/logs
@@ -25,7 +19,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
 # Expose the service port
-EXPOSE 5000
+EXPOSE 5001
 
 # Set working directory to service directory
 WORKDIR /app/microservices/api_gateway

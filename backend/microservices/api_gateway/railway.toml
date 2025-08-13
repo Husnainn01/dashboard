@@ -1,11 +1,11 @@
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+dockerfilePath = "microservices/api_gateway/Dockerfile"
 
 [deploy]
-startCommand = "python api_gateway.py"
+startCommand = "python main.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 
 [service]
-port = 5000
+port = 5001

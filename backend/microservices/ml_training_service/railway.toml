@@ -1,9 +1,9 @@
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+dockerfilePath = "microservices/ml_training_service/Dockerfile"
 
 [deploy]
-startCommand = "python ml_service_app.py"
+startCommand = "python main.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 
