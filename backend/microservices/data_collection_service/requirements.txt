@@ -20,3 +20,4 @@ uvicorn==0.35.0
 websocket-client==1.8.0
 -e git+https://github.com/cleitonleonel/pyquotex.git@8706f2c4c5db41584495de44f255cb51e9e711ea#egg=pyquotex
 numpy==2.3.1
+python-dotenv==1.0.1
