@@ -200,14 +200,14 @@ class DataCollector:
                     self.logger.warning(f"⚠️ Failed to get profile after {max_retries} attempts, continuing anyway")
                 # Continue even if profile fetch fails
                 
-                return True
+                return True, "Connected successfully"
             else:
                 self.logger.error(f"❌ Failed to connect: {message}")
-                return False
+                return False, message
                 
         except Exception as e:
             self.logger.error(f"❌ Connection error: {str(e)}")
-            return False
+            return False, str(e)
     
     async def disconnect(self):
         """Disconnect from PyQuotex and MongoDB"""

@@ -226,60 +226,53 @@ class ContinuousDataService:
         """Connect to PyQuotex with retry logic"""
         
         for attempt in range(self.max_reconnect_attempts):
+            logger.info(f"🔌 Connecting to PyQuotex (attempt {attempt + 1}/{self.max_reconnect_attempts})...")
+            
             try:
-                logger.info(f"🔌 Connecting to PyQuotex (attempt {attempt + 1}/{self.max_reconnect_attempts})...")
+                # Attempt to connect to PyQuotex
+                connect_result, message = await self.collector.connect()
                 
-                try:
-                    connect_result, message = await self.collector.connect()
-                    if connect_result:
-                        logger.info("✅ Connected to PyQuotex successfully")
-                        self.stats['reconnection_attempts'] = 0
+                if connect_result:
+                    logger.info("✅ Connected to PyQuotex successfully")
+                    self.stats['reconnection_attempts'] = 0
+                    
+                    # Check which pairs are actually available
+                    try:
+                        available_pairs = await self.collector.get_available_pairs()
+                        logger.info(f"📊 Available pairs in PyQuotex: {available_pairs}")
                         
-                        # Check which pairs are actually available
-                        try:
-                            available_pairs = await self.collector.get_available_pairs()
-                            logger.info(f"📊 Available pairs in PyQuotex: {available_pairs}")
-                        except Exception as e:
-                            logger.error(f"❌ Error getting available pairs: {str(e)}")
-                            # Continue even if we can't get available pairs
-                            available_pairs = []
-                    else:
-                        logger.error(f"❌ Failed to connect to PyQuotex: {message}")
-                        await asyncio.sleep(self.reconnect_delay)
-                        continue
-                except Exception as e:
-                    logger.error(f"❌ Exception during PyQuotex connection: {str(e)}")
-                    await asyncio.sleep(self.reconnect_delay)
-                    continue
-                    
-                    # Filter trading pairs to only include available ones
-                    filtered_pairs = []
-                    for pair in self.collector.trading_pairs:
-                        if pair in available_pairs:
-                            filtered_pairs.append(pair)
+                        # Filter trading pairs to only include available ones
+                        filtered_pairs = []
+                        for pair in self.collector.trading_pairs:
+                            if pair in available_pairs:
+                                filtered_pairs.append(pair)
+                            else:
+                                logger.warning(f"⚠️ Trading pair not available in PyQuotex: {pair}")
+                        
+                        if filtered_pairs:
+                            self.collector.trading_pairs = filtered_pairs
+                            logger.info(f"📊 Using available trading pairs: {filtered_pairs}")
                         else:
-                            logger.warning(f"⚠️ Trading pair not available in PyQuotex: {pair}")
+                            # Keep trying with configured pairs even if they're not in the available list
+                            logger.warning("⚠️ None of the configured pairs were found in the available pairs list")
+                            logger.info(f"📊 Continuing with configured pairs: {self.collector.trading_pairs}")
+                    except Exception as e:
+                        logger.error(f"❌ Error getting available pairs: {str(e)}")
+                        # Continue even if we can't get available pairs
                     
-                    if filtered_pairs:
-                        self.collector.trading_pairs = filtered_pairs
-                        logger.info(f"📊 Using available trading pairs: {filtered_pairs}")
-                    else:
-                        # Keep trying with configured pairs even if they're not in the available list
-                        # This is because the available pairs list might not be complete
-                        logger.warning("⚠️ None of the configured pairs were found in the available pairs list")
-                        logger.info(f"📊 Continuing with configured pairs: {self.collector.trading_pairs}")
-                    
+                    # Successfully connected and processed pairs
                     return True
                 else:
-                    logger.warning(f"⚠️ Connection attempt {attempt + 1} failed")
-                    
+                    logger.error(f"❌ Failed to connect to PyQuotex: {message}")
             except Exception as e:
                 logger.error(f"❌ Connection error (attempt {attempt + 1}): {str(e)}")
             
+            # If we get here, the connection attempt failed
             if attempt < self.max_reconnect_attempts - 1:
                 logger.info(f"⏳ Waiting {self.reconnect_delay}s before retry...")
                 await asyncio.sleep(self.reconnect_delay)
         
+        # All attempts failed
         logger.error("❌ Failed to connect to PyQuotex after all attempts")
         self.stats['reconnection_attempts'] += 1
         return False
