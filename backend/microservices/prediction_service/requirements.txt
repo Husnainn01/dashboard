@@ -38,3 +38,4 @@ uvicorn==0.35.0
 xgboost==3.0.3
 python-dotenv==1.0.1
 seaborn==0.13.2
+boto3==1.26.135
