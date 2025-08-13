@@ -1,10 +1,13 @@
-FROM python:3.9-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
+# Install system deps for git-based installs
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
 # Copy requirements first for better caching
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+COPY microservices/api_gateway/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Copy the service code and shared modules
 COPY microservices/api_gateway /app/microservices/api_gateway/
