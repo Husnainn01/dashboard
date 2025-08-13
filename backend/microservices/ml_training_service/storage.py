@@ -338,6 +338,72 @@ class ModelStorageService:
             return await self._list_local_models(trading_pair, algorithm)
         elif self.storage_type == "r2":
             return await self._list_r2_models(trading_pair, algorithm)
+            
+    async def get_model_metadata(self, model_id: str) -> dict:
+        """
+        Get metadata for a specific model
+        
+        Args:
+            model_id: Model ID to get metadata for
+            
+        Returns:
+            Model metadata dictionary
+        """
+        logger.info(f"🔍 Getting metadata for model: {model_id}")
+        
+        if self.storage_type == "local":
+            return await self._get_local_model_metadata(model_id)
+        elif self.storage_type == "r2":
+            return await self._get_r2_model_metadata(model_id)
+            
+    async def _get_local_model_metadata(self, model_id: str) -> dict:
+        """Get model metadata from local storage"""
+        try:
+            # Construct path to metadata file
+            metadata_path = Path(self.local_dir) / model_id / "metadata.json"
+            
+            if not metadata_path.exists():
+                raise FileNotFoundError(f"Metadata file not found for model {model_id}")
+                
+            # Load metadata
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+                
+            logger.info(f"✅ Loaded metadata for model {model_id} from local storage")
+            return metadata
+            
+        except Exception as e:
+            logger.error(f"❌ Error loading metadata for model {model_id} from local storage: {str(e)}")
+            raise
+            
+    async def _get_r2_model_metadata(self, model_id: str) -> dict:
+        """Get model metadata from Cloudflare R2"""
+        try:
+            # Construct key for metadata file
+            metadata_key = f"models/{model_id}/metadata.json"
+            
+            # Get metadata object
+            try:
+                metadata_obj = self.r2_client.get_object(
+                    Bucket=self.bucket_name,
+                    Key=metadata_key
+                )
+            except self.r2_client.exceptions.NoSuchKey:
+                raise FileNotFoundError(f"Metadata file not found for model {model_id} in R2 storage")
+                
+            # Read and parse metadata
+            metadata_bytes = metadata_obj['Body'].read()
+            metadata = json.loads(metadata_bytes.decode('utf-8'))
+            
+            logger.info(f"✅ Loaded metadata for model {model_id} from R2 storage")
+            return metadata
+            
+        except FileNotFoundError:
+            # Re-raise file not found errors
+            raise
+        except Exception as e:
+            logger.error(f"❌ Error loading metadata for model {model_id} from R2 storage: {str(e)}")
+            raise
     
     async def _list_local_models(self, trading_pair: str = None, algorithm: str = None) -> list:
         """List models in local filesystem"""

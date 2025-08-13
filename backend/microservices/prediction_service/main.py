@@ -44,10 +44,13 @@ logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
-    title="OTC Predictor Prediction Service",
-    description="Generates predictions using trained ML models",
+    title="OTC Prediction Service",
+    description="Service for making predictions for OTC trading pairs",
     version="1.0.0"
 )
+
+# Import monitoring module
+import monitoring
 
 # Add CORS middleware
 app.add_middleware(
@@ -113,6 +116,10 @@ model_trainer = None
 feature_engineer = None
 model_storage_manager = None
 
+# Import prediction manager and parallel processor modules
+import prediction_manager
+import parallel_processor
+
 # Service state
 prediction_service_state = {
     "is_running": False,
@@ -125,6 +132,14 @@ prediction_service_state = {
     "model_cache": {},      # Cache for loaded models to reduce latency
     "feature_cache": {}     # Cache for extracted features to reduce latency
 }
+
+# Initialize prediction manager and parallel processor
+prediction_mgr = prediction_manager.PredictionManager()
+parallel_proc = parallel_processor.ParallelProcessor(max_concurrency=3)
+
+# Setup monitoring routes and link to prediction manager
+monitoring_svc = monitoring.setup_monitoring_routes(app, prediction_mgr, parallel_proc)
+prediction_manager.monitoring_service = monitoring_svc
 
 # Pydantic models
 class PredictionRequest(BaseModel):
@@ -470,6 +485,8 @@ async def get_status():
 
 @app.post("/predict", response_model=PredictionResponse)
 async def make_prediction(request: PredictionRequest):
+    # Start timing for monitoring
+    start_time = time.time()
     """Generate a prediction for a trading pair"""
     global model_trainer, mongodb_manager
     
@@ -751,25 +768,46 @@ async def make_prediction(request: PredictionRequest):
         
         # Log performance metrics
         end_time = time.time()
-        execution_time = (end_time - start_time) * 1000  # Convert to milliseconds
-        logger.info(f"✅ Prediction for {request.trading_pair}: {prediction_direction} ({confidence:.3f} confidence) in {execution_time:.2f}ms")
-        
         # Broadcast prediction to WebSocket clients asynchronously
         asyncio.create_task(broadcast_prediction(prediction_data))
         
+        # Calculate execution time for monitoring
+        execution_time_ms = (time.time() - start_time) * 1000
+        
+        # Record successful prediction in monitoring service
+        monitoring_svc.record_prediction(
+            trading_pair=request.trading_pair,
+            duration_ms=execution_time_ms,
+            success=True
+        )
+        
+        # Return prediction response
         return PredictionResponse(
             trading_pair=request.trading_pair,
             timestamp=datetime.utcnow(),
-            prediction=prediction_direction,  # Use 'prediction' instead of 'direction'
+            prediction=prediction_direction,  
             probability=float(probability),
             confidence=float(confidence),
             expected_change=float(expected_change),
             model_used=metadata['algorithm']
         )
-        
     except HTTPException:
+        # Record HTTP exception in monitoring
+        execution_time_ms = (time.time() - start_time) * 1000
+        monitoring_svc.record_prediction(
+            trading_pair=request.trading_pair,
+            duration_ms=execution_time_ms,
+            success=False
+        )
         raise
     except Exception as e:
+        # Record general exception in monitoring
+        execution_time_ms = (time.time() - start_time) * 1000
+        monitoring_svc.record_prediction(
+            trading_pair=request.trading_pair,
+            duration_ms=execution_time_ms,
+            success=False
+        )
         logger.error(f"❌ Prediction error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
@@ -993,16 +1031,27 @@ async def broadcast_prediction(prediction: PredictionData):
         logger.error(f"❌ Error broadcasting prediction: {str(e)}")
 
 async def run_continuous_predictions():
-    """Run continuous prediction generation"""
+    """Run continuous prediction generation with proper timezone handling"""
     global prediction_service_state
     
-    logger.info("🚀 Starting continuous predictions...")
+    # Import the timezone utilities
+    from timezone_utils import (
+        get_current_market_time, get_current_candle_time, get_previous_candle_time,
+        seconds_until_next_candle, get_candle_schedule_info
+    )
+    
+    logger.info("🚀 Starting continuous predictions with improved timezone handling...")
     
     prediction_service_state["is_running"] = True
     prediction_service_state["started_at"] = datetime.now()
     
-    # Track the last candle timestamp we made a prediction for
+    # Track the last candle timestamp we made a prediction for (in market timezone)
     last_candle_timestamps = {}
+    
+    # Define the candle timeframe in minutes
+    timeframe_minutes = 1
+    # Buffer time to wait after candle close to ensure data is available (seconds)
+    buffer_seconds = 3
     
     try:
         while prediction_service_state["is_running"]:
@@ -1019,10 +1068,15 @@ async def run_continuous_predictions():
                 logger.error(f"❌ Error checking for trained models: {str(e)}")
             
             if models_available:
-                # Get current time and round down to the nearest minute
-                # This represents the timestamp of the candle that just completed
-                now = datetime.now()
-                current_candle_time = now.replace(second=0, microsecond=0)
+                # Get current candle time in market timezone (UTC+7)
+                current_candle_time = get_current_candle_time(timeframe_minutes)
+                previous_candle_time = get_previous_candle_time(timeframe_minutes)
+                
+                # Log detailed timing information for debugging
+                schedule_info = get_candle_schedule_info(timeframe_minutes, buffer_seconds)
+                logger.info(f"⏱️ Candle timing: Current market time: {schedule_info['current_time']}, "  
+                           f"Current candle: {schedule_info['current_candle']}, "  
+                           f"Next candle: {schedule_info['next_candle']}")
                 
                 # Get active trading pairs or use defaults if none are active
                 active_pairs = prediction_service_state["active_pairs"]
@@ -1039,66 +1093,98 @@ async def run_continuous_predictions():
                 
                 logger.info(f"📊 Processing predictions for pairs: {pairs_ordered}")
                 
-                # Generate predictions for active trading pairs with priority
+                # Generate predictions for active trading pairs in parallel with priority handling
+                # First, filter pairs that need prediction for this cycle
+                pairs_to_process = []
                 for trading_pair in pairs_ordered:
-                    try:
-                        # Check if we already made a prediction for this candle
-                        last_prediction_time = last_candle_timestamps.get(trading_pair)
-                        
-                        if last_prediction_time is None or last_prediction_time < current_candle_time:
+                    # Check if we already made a prediction for this candle
+                    last_prediction_time = last_candle_timestamps.get(trading_pair)
+                    
+                    # We want to predict for the previous completed candle
+                    # This ensures we have all the data for that candle
+                    if last_prediction_time is None or last_prediction_time < previous_candle_time:
+                        # Check if model_trainer is initialized
+                        if model_trainer is None:
+                            logger.error(f"❌ Model trainer not initialized for {trading_pair}")
+                            continue
+                            
+                        pairs_to_process.append(trading_pair)
+                    else:
+                        logger.info(f"⏭️ Skipping prediction for {trading_pair} - already predicted for candle at {previous_candle_time}")
+                
+                if pairs_to_process:
+                    logger.info(f"🔄 Processing {len(pairs_to_process)} trading pairs in parallel")
+                    
+                    # Define the prediction function for a single trading pair
+                    async def process_trading_pair(trading_pair):
+                        try:
                             # Log with priority indicator if applicable
                             if trading_pair == priority_pair:
-                                logger.info(f"🔮 [PRIORITY] Generating prediction for {trading_pair} for candle at {current_candle_time.isoformat()}...")
+                                logger.info(f"🔮 [PRIORITY] Generating prediction for {trading_pair} for candle at {previous_candle_time}...")
                             else:
-                                logger.info(f"🔮 Generating prediction for {trading_pair} for candle at {current_candle_time.isoformat()}...")
+                                logger.info(f"🔮 Generating prediction for {trading_pair} for candle at {previous_candle_time}...")
                             
-                            # Check if model_trainer is initialized
-                            if model_trainer is None:
-                                logger.error(f"❌ Model trainer not initialized for {trading_pair}")
-                                continue
+                            # Define a wrapper function for prediction manager
+                            async def make_prediction_wrapper(trading_pair):
+                                request = PredictionRequest(trading_pair=trading_pair)
+                                return await make_prediction(request)
                             
-                            # Generate prediction
-                            request = PredictionRequest(trading_pair=trading_pair)
-                            await make_prediction(request)
+                            # Set different timeout for priority pairs
+                            base_timeout = 8.0 if trading_pair == priority_pair else 5.0
+                            max_retries = 2 if trading_pair == priority_pair else 1
+                            
+                            # Execute prediction with resilience
+                            result = await prediction_mgr.make_prediction_with_resilience(
+                                make_prediction_wrapper,
+                                trading_pair,
+                                max_retries=max_retries,
+                                base_timeout=base_timeout
+                            )
                             
                             # Update the last prediction time for this pair
-                            last_candle_timestamps[trading_pair] = current_candle_time
+                            last_candle_timestamps[trading_pair] = previous_candle_time
                             
-                            # If this is the priority pair, add a small delay before processing others
-                            # to ensure the priority pair gets processed without resource contention
-                            if trading_pair == priority_pair:
-                                logger.info(f"⏱️ Priority pair processed, pausing briefly before processing others")
-                                await asyncio.sleep(0.5)
-                        else:
-                            logger.info(f"⏭️ Skipping prediction for {trading_pair} - already predicted for candle at {current_candle_time.isoformat()}")
-                        
-                    except HTTPException as http_e:
-                        # Handle HTTP exceptions (like 404 for missing models) gracefully
-                        if http_e.status_code == 404:
-                            logger.warning(f"⚠️ No model available for {trading_pair}. Skipping prediction.")
-                        else:
-                            logger.error(f"❌ HTTP error for {trading_pair}: {http_e.detail}")
-                    except Exception as e:
-                        logger.error(f"❌ Error generating prediction for {trading_pair}: {str(e)}")
+                            return result
+                            
+                        except HTTPException as http_e:
+                            # Handle HTTP exceptions (like 404 for missing models) gracefully
+                            if http_e.status_code == 404:
+                                logger.warning(f"⚠️ No model available for {trading_pair}. Skipping prediction.")
+                            else:
+                                logger.error(f"❌ HTTP error for {trading_pair}: {http_e.detail}")
+                            return None
+                        except Exception as e:
+                            logger.error(f"❌ Error generating prediction for {trading_pair}: {str(e)}")
+                            return None
+                    
+                    # Process all trading pairs in parallel with priority handling
+                    results = await parallel_proc.process_trading_pairs(
+                        pairs_to_process,
+                        process_trading_pair,
+                        priority_pair=priority_pair
+                    )
+                    
+                    # Log summary of results
+                    successful = sum(1 for r in results.values() if r is not None)
+                    logger.info(f"✅ Successfully processed {successful}/{len(pairs_to_process)} trading pairs")
+                    
+                    # Log parallel processing stats
+                    processor_stats = parallel_proc.get_stats()
+                    logger.info(f"📊 Parallel processor stats: {processor_stats['successful_tasks']}/{processor_stats['total_tasks_processed']} successful, " +
+                               f"max concurrent: {processor_stats['max_concurrent_tasks']}")
+                else:
+                    logger.info("⏭️ No trading pairs need prediction for this cycle")
             
-            # Wait until the next candle is available (respect 1-minute timeframe)
-            # Calculate time until next minute starts plus a buffer to ensure the candle is complete
-            # Note: System operates in UTC, but market hours are adjusted for Bangkok timezone (UTC+7) in feature engineering
-            now = datetime.now()
+            # Calculate wait time until the next candle using timezone-aware utilities
+            wait_seconds = seconds_until_next_candle(timeframe_minutes, buffer_seconds)
             
-            # For 1-minute candles, we want to generate predictions right after the candle completes
-            # Example: For 10:01:00 candle, we want to predict at 10:02:03 (after the candle is fully formed)
-            seconds_to_next_minute = 60 - now.second
-            if seconds_to_next_minute < 3:  # If we're very close to the next minute, wait for the minute after
-                seconds_to_next_minute += 60
+            # Log detailed waiting information
+            schedule_info = get_candle_schedule_info(timeframe_minutes, buffer_seconds)
+            logger.info(f"⏱️ Waiting {wait_seconds:.1f} seconds until next candle processing")
+            logger.info(f"⏱️ Next prediction cycle at: {schedule_info['next_prediction_at']}")
             
-            # Add buffer to ensure candle data is available (3 seconds after the minute)
-            seconds_to_next_minute += 3
-            
-            logger.info(f"⏱️ Waiting {seconds_to_next_minute} seconds until next candle (1-minute timeframe)")
-            logger.info(f"⏱️ Next prediction at: {(now + timedelta(seconds=seconds_to_next_minute)).strftime('%H:%M:%S')}")
-            
-            await asyncio.sleep(seconds_to_next_minute)
+            # Wait until it's time for the next prediction cycle
+            await asyncio.sleep(wait_seconds)
     
     except Exception as e:
         logger.error(f"❌ Continuous prediction error: {str(e)}")

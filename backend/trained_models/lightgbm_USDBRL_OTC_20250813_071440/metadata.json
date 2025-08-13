@@ -1,0 +1,17 @@
+{
+  "algorithm": "lightgbm",
+  "trading_pair": "USDBRL OTC",
+  "trained_at": "2025-08-13T07:14:40.660284",
+  "metrics": {
+    "accuracy": 0.8888888888888888,
+    "precision": 0.8891598915989161,
+    "recall": 0.8888888888888888,
+    "f1": 0.8888888888888888,
+    "auc_roc": 0.9274390243902438,
+    "cv_mean": 0.7,
+    "cv_std": 0.06043462376816787
+  },
+  "model_path": "/Users/husnain/Downloads/dash-baord/otc-predictor/backend/trained_models/lightgbm_USDBRL_OTC_20250813_071440/model.pkl",
+  "scaler_path": "/Users/husnain/Downloads/dash-baord/otc-predictor/backend/trained_models/lightgbm_USDBRL_OTC_20250813_071440/scaler.pkl",
+  "version": "1.0.0"
+}

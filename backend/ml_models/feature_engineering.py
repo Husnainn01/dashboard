@@ -26,6 +26,10 @@ class FeatureEngineer:
     def __init__(self, mongodb_manager: MongoDBManager = None):
         self.mongodb = mongodb_manager or MongoDBManager()
         
+        # Import composite feature generator
+        from ml_models.composite_features import CompositeFeatureGenerator
+        self.composite_generator = CompositeFeatureGenerator()
+        
         # Technical indicator parameters - Enhanced for USD/BRL(OTC)
         self.rsi_period = 14
         self.rsi_periods = [7, 14, 21]  # Multiple RSI periods for better signal detection
@@ -96,109 +100,106 @@ class FeatureEngineer:
         
         # Handle volume column (create default if not exists)
         if 'volume' in df.columns:
-            volumes = df['volume'].astype(float).values
+            volume = df['volume'].astype(float).values
         else:
-            volumes = np.ones(len(df))
+            volume = np.ones_like(close_prices)  # Default volume if not available
         
-        # Initialize features dictionary
-        features = {}
+        # Extract all features
+        features_dict = {}
         
         try:
-            # Basic OHLC features
-            features.update(self._extract_basic_features(df))
+            # Basic features
+            basic_features = self._extract_basic_features(df)
+            features_dict.update(basic_features)
             
             # Technical indicators
-            features.update(self._extract_technical_indicators(
-                open_prices, high_prices, low_prices, close_prices, volumes
-            ))
+            tech_indicators = self._extract_technical_indicators(
+                open_prices, high_prices, low_prices, close_prices, volume
+            )
+            features_dict.update(tech_indicators)
             
-            # Price patterns and relationships
-            features.update(self._extract_price_patterns(close_prices))
+            # Price patterns
+            price_patterns = self._extract_price_patterns(close_prices)
+            features_dict.update(price_patterns)
             
-            # Time-based features
-            features.update(self._extract_time_features(df))
+            # Time features
+            time_features = self._extract_time_features(df)
+            features_dict.update(time_features)
             
             # Volatility features
-            features.update(self._extract_volatility_features(close_prices, high_prices, low_prices, open_prices))
+            volatility_features = self._extract_volatility_features(
+                close_prices, high_prices, low_prices, open_prices
+            )
+            features_dict.update(volatility_features)
             
-            # Volume features (if available)
-            if 'volume' in df.columns:
-                features.update(self._extract_volume_features(close_prices, volumes, high_prices, low_prices))
+            # Volume features
+            volume_features = self._extract_volume_features(
+                close_prices, volume, high_prices, low_prices
+            )
+            features_dict.update(volume_features)
             
             # Statistical features
-            features.update(self._extract_statistical_features(close_prices))
-        except Exception as e:
-            logger.error(f"❌ Error extracting features: {str(e)}")
-            # Continue with whatever features we have
-        
-        # Check for array length consistency
-        feature_lengths = {k: len(v) for k, v in features.items() if isinstance(v, (np.ndarray, list))}
-        if len(set(feature_lengths.values())) > 1:
-            logger.warning(f"⚠️ Inconsistent feature lengths detected: {feature_lengths}")
+            stat_features = self._extract_statistical_features(close_prices)
+            features_dict.update(stat_features)
             
-            # Find the most common length
-            from collections import Counter
-            lengths_counter = Counter(feature_lengths.values())
-            most_common_length = lengths_counter.most_common(1)[0][0]
+            # Generate composite features
+            composite_features = self.composite_generator.generate_composite_features(features_dict)
             
-            # Filter features to only include those with the most common length
-            features = {k: v for k, v in features.items() 
-                       if not isinstance(v, (np.ndarray, list)) or len(v) == most_common_length}
+            # Add composite_ prefix to all composite features
+            composite_features = {f"composite_{k}": v for k, v in composite_features.items()}
+            features_dict.update(composite_features)
             
-            logger.info(f"✂️ Trimmed features to consistent length of {most_common_length}")
-        
-        # Create feature DataFrame
-        try:
-            feature_df = pd.DataFrame(features)
-            
-            # Add target variable if requested
+            # Create target variable if requested
             if target_next:
                 target = self._create_target_variable(close_prices)
-                # Ensure target length matches feature_df
-                if len(target) != len(feature_df):
-                    logger.warning(f"⚠️ Target length {len(target)} doesn't match features length {len(feature_df)}")
-                    # Trim to the shorter length
-                    min_len = min(len(target), len(feature_df))
-                    target = target[:min_len]
-                    feature_df = feature_df.iloc[:min_len]
-                    
-                feature_df['target'] = target
+                if target is not None:
+                    features_dict['target'] = target
             
-            # Add timestamp for reference
-            if len(df) != len(feature_df):
-                logger.warning(f"⚠️ DataFrame length {len(df)} doesn't match features length {len(feature_df)}")
-                # Trim to the shorter length
-                min_len = min(len(df), len(feature_df))
-                feature_df = feature_df.iloc[:min_len]
-                df = df.iloc[:min_len]
+            # Check for array length consistency
+            feature_lengths = {k: len(v) for k, v in features_dict.items() if isinstance(v, (np.ndarray, list))}
+            if len(set(feature_lengths.values())) > 1:
+                logger.warning(f"⚠️ Inconsistent feature lengths detected: {feature_lengths}")
                 
-            feature_df['timestamp'] = df['timestamp'].values
+                # Find the most common length
+                from collections import Counter
+                lengths_counter = Counter(feature_lengths.values())
+                most_common_length = lengths_counter.most_common(1)[0][0]
+                
+                # Filter features to only include those with the most common length
+                features_dict = {k: v for k, v in features_dict.items() 
+                           if not isinstance(v, (np.ndarray, list)) or len(v) == most_common_length}
+                
+                logger.info(f"✂️ Trimmed features to consistent length of {most_common_length}")
+            
+            # Convert to DataFrame
+            feature_arrays = {k: v for k, v in features_dict.items() if v is not None}
+            feature_df = pd.DataFrame(feature_arrays)
+            
+            # Add timestamp
+            if 'timestamp' in df.columns:
+                feature_df['timestamp'] = df['timestamp'].values[:len(feature_df)]
+            
+            # First, fill NaN values in features that can be safely interpolated
+            numeric_cols = feature_df.select_dtypes(include=['float64', 'int64']).columns
+            feature_df[numeric_cols] = feature_df[numeric_cols].interpolate(method='linear').fillna(0)
+            
+            # For target column, we can't interpolate, so we'll drop rows where target is NaN
+            if target_next and 'target' in feature_df.columns:
+                feature_df = feature_df.dropna(subset=['target'])
+            
+            # Check if we still have rows after handling NaNs
+            if feature_df.shape[0] == 0:
+                logger.error("❌ Empty DataFrame after feature extraction")
+                return pd.DataFrame()
+            
+            logger.info(f"✅ Extracted {feature_df.shape[1]} features from {len(candles)} candles")
+            logger.info(f"📊 Feature DataFrame shape: {feature_df.shape}")
+            
+            return feature_df
+            
         except Exception as e:
-            logger.error(f"❌ Error creating feature DataFrame: {str(e)}")
+            logger.error(f"❌ Error extracting features: {str(e)}")
             return pd.DataFrame()
-        
-        # Check if we have any rows before dropping NaN values
-        if feature_df.shape[0] == 0:
-            logger.error("❌ Empty DataFrame after feature extraction")
-            return pd.DataFrame()
-        
-        # First, fill NaN values in features that can be safely interpolated
-        numeric_cols = feature_df.select_dtypes(include=['float64', 'int64']).columns
-        feature_df[numeric_cols] = feature_df[numeric_cols].interpolate(method='linear').fillna(0)
-        
-        # For target column, we can't interpolate, so we'll drop rows where target is NaN
-        if target_next and 'target' in feature_df.columns:
-            feature_df = feature_df.dropna(subset=['target'])
-        
-        # Check if we still have rows after handling NaNs
-        if feature_df.shape[0] == 0:
-            logger.error("❌ No data left after handling NaN values")
-            return pd.DataFrame()
-        
-        logger.info(f"✅ Extracted {feature_df.shape[1]} features from {len(candles)} candles")
-        logger.info(f"📊 Feature DataFrame shape: {feature_df.shape}")
-        
-        return feature_df
     
     def _extract_basic_features(self, df: pd.DataFrame) -> Dict[str, np.ndarray]:
         """Extract basic OHLC-based features"""

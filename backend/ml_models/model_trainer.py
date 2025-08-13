@@ -8,6 +8,8 @@ import pandas as pd
 import joblib
 import json
 import os
+import io
+import pickle
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional, Any, Union
 from pathlib import Path
@@ -35,6 +37,10 @@ from database.mongodb_models import MongoDBManager, PredictionData
 from ml_models.feature_engineering import FeatureEngineer
 from config import MODEL_RETRAIN_INTERVAL, MIN_TRAINING_SAMPLES, PREDICTION_CONFIDENCE_THRESHOLD
 
+# Import storage service
+sys.path.append(str(Path(__file__).parent.parent / "microservices" / "ml_training_service"))
+from storage import ModelStorageService
+
 logger = logging.getLogger(__name__)
 
 class ModelTrainer:
@@ -48,6 +54,25 @@ class ModelTrainer:
         
         # Model storage
         self.models_dir = Path(__file__).parent.parent / "trained_models"
+        
+        # Initialize storage service for cloud storage
+        self.storage_service = ModelStorageService(
+            storage_type="r2",
+            config={
+                "access_key": os.environ.get("R2_ACCESS_KEY"),
+                "secret_key": os.environ.get("R2_SECRET_KEY"),
+                "endpoint_url": os.environ.get("R2_ENDPOINT_URL"),
+                "bucket_name": os.environ.get("R2_BUCKET_NAME", "quotex")
+            }
+        )
+        
+        # Flag to control storage behavior
+        self.use_cloud_storage = os.environ.get("USE_CLOUD_STORAGE", "true").lower() == "true"
+        
+        if self.use_cloud_storage:
+            logger.info("☁️ ModelTrainer configured to use cloud storage (R2)")
+        else:
+            logger.info("📁 ModelTrainer configured to use local storage")
         self.models_dir.mkdir(exist_ok=True)
         
         # Available algorithms
@@ -317,39 +342,65 @@ class ModelTrainer:
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         model_name = f"{algorithm}_{trading_pair.replace(' ', '_')}_{timestamp}"
         
-        # Create model directory
-        model_dir = self.models_dir / model_name
-        model_dir.mkdir(exist_ok=True)
+        # Prepare model data (combine model and scaler)
+        model_data = {
+            'model': model,
+            'scaler': scaler
+        }
         
-        # Save model
-        model_path = model_dir / "model.pkl"
-        joblib.dump(model, model_path)
-        
-        # Save scaler
-        scaler_path = model_dir / "scaler.pkl"
-        joblib.dump(scaler, scaler_path)
-        
-        # Save metadata
+        # Prepare metadata
         metadata = {
             'algorithm': algorithm,
             'trading_pair': trading_pair,
             'trained_at': datetime.utcnow().isoformat(),
             'metrics': metrics,
-            'model_path': str(model_path),
-            'scaler_path': str(scaler_path),
             'version': '1.0.0'
         }
         
-        metadata_path = model_dir / "metadata.json"
-        with open(metadata_path, 'w') as f:
-            json.dump(metadata, f, indent=2)
+        if self.use_cloud_storage:
+            # Save to cloud storage (R2)
+            try:
+                result = await self.storage_service.save_model(
+                    model_data=model_data,
+                    metadata=metadata,
+                    model_id=model_name
+                )
+                logger.info(f"☁️ Model saved to cloud storage: {model_name}")
+            except Exception as e:
+                logger.error(f"❌ Error saving model to cloud storage: {str(e)}")
+                raise
+        else:
+            # Legacy local storage path (only used if cloud storage is disabled)
+            model_dir = self.models_dir / model_name
+            model_dir.mkdir(exist_ok=True)
+            
+            # Save model
+            model_path = model_dir / "model.pkl"
+            joblib.dump(model, model_path)
+            
+            # Save scaler
+            scaler_path = model_dir / "scaler.pkl"
+            joblib.dump(scaler, scaler_path)
+            
+            # Update metadata with local paths
+            metadata['model_path'] = str(model_path)
+            metadata['scaler_path'] = str(scaler_path)
+            
+            # Save metadata
+            metadata_path = model_dir / "metadata.json"
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            
+            logger.info(f"💾 Model saved locally: {model_name}")
         
-        logger.info(f"💾 Model saved: {model_name}")
         return model_name
     
     async def _generate_training_report(self, results: Dict[str, Dict], 
                                       trading_pair: str) -> Dict:
         """Generate comprehensive training report"""
+        
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        report_id = f"training_report_{trading_pair.replace(' ', '_')}_{timestamp}"
         
         report = {
             'trading_pair': trading_pair,
@@ -370,78 +421,159 @@ class ModelTrainer:
                     report['best_accuracy'] = accuracy
                     report['best_model'] = algorithm
         
-        # Save report
-        report_path = self.models_dir / f"training_report_{trading_pair.replace(' ', '_')}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(report_path, 'w') as f:
-            json.dump(report, f, indent=2)
-        
-        logger.info(f"📊 Training report saved: {report_path}")
+        if self.use_cloud_storage:
+            # Save report to cloud storage
+            try:
+                # Convert report to bytes
+                report_bytes = json.dumps(report, indent=2).encode('utf-8')
+                report_stream = io.BytesIO(report_bytes)
+                
+                # Upload to R2
+                report_key = f"reports/{report_id}.json"
+                self.storage_service.r2_client.upload_fileobj(
+                    report_stream,
+                    self.storage_service.bucket_name,
+                    report_key
+                )
+                
+                logger.info(f"☁️ Training report saved to cloud storage: {report_id}")
+            except Exception as e:
+                logger.error(f"❌ Error saving training report to cloud storage: {str(e)}")
+                # Continue execution even if cloud save fails
+        else:
+            # Legacy local storage path
+            report_path = self.models_dir / f"{report_id}.json"
+            with open(report_path, 'w') as f:
+                json.dump(report, f, indent=2)
+            
+            logger.info(f"📊 Training report saved locally: {report_path}")
+            
         return report
     
     async def check_model_exists(self, trading_pair: str, model_type: str = 'xgboost') -> bool:
         """Check if a trained model exists for a trading pair and model type"""
         try:
-            # Look for model directories that match the pattern
-            model_pattern = f"{model_type}_{trading_pair.replace('/', '_').replace('(', '_').replace(')', '_')}*"
-            
-            # List all directories in the models directory
-            model_dirs = list(self.models_dir.glob(model_pattern))
-            
-            # Check if any matching model directories exist
-            exists = len(model_dirs) > 0
-            
-            if exists:
-                logger.info(f"✅ Found model for {trading_pair} ({model_type}): {model_dirs[0].name}")
+            if self.use_cloud_storage:
+                # Check in cloud storage
+                try:
+                    # Get list of models from cloud storage
+                    model_prefix = f"models/{model_type}_{trading_pair.replace('/', '_').replace('(', '_').replace(')', '_')}"
+                    
+                    # List objects with the prefix
+                    response = self.storage_service.r2_client.list_objects_v2(
+                        Bucket=self.storage_service.bucket_name,
+                        Prefix=model_prefix
+                    )
+                    
+                    # Check if any matching models exist
+                    exists = 'Contents' in response and len(response['Contents']) > 0
+                    
+                    if exists:
+                        model_key = response['Contents'][0]['Key']
+                        model_name = model_key.split('/')[1]  # Extract model name from key
+                        logger.info(f"☁️ Found model in cloud storage for {trading_pair} ({model_type}): {model_name}")
+                    else:
+                        logger.warning(f"⚠️ No model found in cloud storage for {trading_pair} ({model_type})")
+                        
+                    return exists
+                    
+                except Exception as e:
+                    logger.error(f"❌ Error checking model existence in cloud storage: {str(e)}")
+                    return False
             else:
-                logger.warning(f"⚠️ No model found for {trading_pair} ({model_type})")
+                # Legacy local storage check
+                model_pattern = f"{model_type}_{trading_pair.replace('/', '_').replace('(', '_').replace(')', '_')}*"
                 
-            return exists
-            
+                # List all directories in the models directory
+                model_dirs = list(self.models_dir.glob(model_pattern))
+                
+                # Check if any matching model directories exist
+                exists = len(model_dirs) > 0
+                
+                if exists:
+                    logger.info(f"✅ Found local model for {trading_pair} ({model_type}): {model_dirs[0].name}")
+                else:
+                    logger.warning(f"⚠️ No local model found for {trading_pair} ({model_type})")
+                    
+                return exists
+                
         except Exception as e:
             logger.error(f"❌ Error checking model existence: {str(e)}")
             return False
     
-    def load_model(self, model_name: str) -> Tuple[Any, StandardScaler, Dict]:
-        """Load a trained model with its scaler and metadata"""
-        
-        model_dir = self.models_dir / model_name
-        
-        if not model_dir.exists():
-            raise FileNotFoundError(f"Model not found: {model_name}")
-        
-        # Load model
-        model_path = model_dir / "model.pkl"
-        model = joblib.load(model_path)
-        
-        # Load scaler
-        scaler_path = model_dir / "scaler.pkl"
-        scaler = joblib.load(scaler_path)
-        
-        # Load metadata
-        metadata_path = model_dir / "metadata.json"
-        with open(metadata_path, 'r') as f:
-            metadata = json.load(f)
-        
-        return model, scaler, metadata
-    
-    def list_trained_models(self) -> List[Dict]:
-        """List all trained models with their metadata"""
-        
-        models = []
-        
-        for model_dir in self.models_dir.iterdir():
-            if model_dir.is_dir():
+    async def load_model(self, model_name: str) -> Dict:
+        """Load a trained model with its metadata"""
+        try:
+            if self.use_cloud_storage:
+                # Load from cloud storage
+                try:
+                    # Use storage service to load model
+                    result = await self.storage_service.load_model(model_name)
+                    
+                    if not result:
+                        logger.error(f"❌ Model not found in cloud storage: {model_name}")
+                        return None
+                        
+                    model_data, metadata = result
+                    
+                    logger.info(f"☁️ Model loaded from cloud storage: {model_name}")
+                    
+                    return {
+                        'model': model_data['model'],
+                        'scaler': model_data['scaler'],
+                        'metadata': metadata
+                    }
+                    
+                except Exception as e:
+                    logger.error(f"❌ Error loading model from cloud storage {model_name}: {str(e)}")
+                    return None
+            else:
+                # Legacy local storage path
+                model_dir = self.models_dir / model_name
+                
+                if not model_dir.exists():
+                    logger.error(f"❌ Model directory not found: {model_dir}")
+                    return None
+                
+                # Load model
+                model_path = model_dir / "model.pkl"
+                if not model_path.exists():
+                    logger.error(f"❌ Model file not found: {model_path}")
+                    return None
+                    
+                model = joblib.load(model_path)
+                
+                # Load scaler
+                scaler_path = model_dir / "scaler.pkl"
+                if not scaler_path.exists():
+                    logger.warning(f"⚠️ Scaler file not found: {scaler_path}")
+                    scaler = None
+                else:
+                    scaler = joblib.load(scaler_path)
+                
+                # Load metadata
                 metadata_path = model_dir / "metadata.json"
-                if metadata_path.exists():
+                if not metadata_path.exists():
+                    logger.warning(f"⚠️ Metadata file not found: {metadata_path}")
+                    metadata = {
+                        'model_name': model_name,
+                        'loaded_at': datetime.utcnow().isoformat()
+                    }
+                else:
                     with open(metadata_path, 'r') as f:
                         metadata = json.load(f)
-                    metadata['model_name'] = model_dir.name
-                    models.append(metadata)
-        
-        # Sort by training date (newest first)
-        models.sort(key=lambda x: x['trained_at'], reverse=True)
-        
-        return models
+                
+                logger.info(f"📁 Model loaded from local storage: {model_name}")
+                
+                return {
+                    'model': model,
+                    'scaler': scaler,
+                    'metadata': metadata
+                }
+                
+        except Exception as e:
+            logger.error(f"❌ Error loading model {model_name}: {str(e)}")
+            return None
     
     async def hyperparameter_tuning(self, algorithm: str, trading_pair: str = "EURUSD OTC",
                                   data_limit: int = 2000) -> Dict:
