@@ -14,3 +14,4 @@ plotly>=5.14.1
 joblib>=1.2.0
 boto3>=1.26.135
 python-multipart>=0.0.6
+TA-Lib>=0.4.24
