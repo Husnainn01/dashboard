@@ -142,9 +142,11 @@ class DataCollector:
             original_base_url = Login.base_url
             original_https_base_url = Login.https_base_url
             
-            # Patch Login class to use the correct domain
-            Login.base_url = 'market-qx.pro'
-            Login.https_base_url = f'https://market-qx.pro'
+            # Patch Login class to use the correct domain (configurable via env QUOTEX_BASE_DOMAIN)
+            import os
+            base_domain = os.getenv('QUOTEX_BASE_DOMAIN', 'qxbroker.com')
+            Login.base_url = base_domain
+            Login.https_base_url = f'https://{base_domain}'
             
             try:
                 # Now connect normally - the Login class will use the correct domain
