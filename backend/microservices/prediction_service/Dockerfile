@@ -4,6 +4,7 @@ WORKDIR /app
 
 # Install system dependencies for ML libraries
 RUN apt-get update && apt-get install -y \
+    git \
     build-essential \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
