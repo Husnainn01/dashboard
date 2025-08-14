@@ -5,11 +5,11 @@
  */
 
 // API base URL - Updated to API Gateway port 5001
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://apigatewayfront-end-production.up.railway.app';
 console.log('🔌 API Service loaded - API Gateway:', API_BASE_URL);
 
 // WebSocket URL - Updated to API Gateway
-const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:5001';
+const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://apigatewayfront-end-production.up.railway.app';
 console.log('📡 WebSocket URL:', WS_BASE_URL);
 
 /**

@@ -13,7 +13,7 @@ export default function Home() {
 
   const checkBackendConnection = async () => {
     try {
-      const response = await fetch('http://localhost:5001/health');
+      const response = await fetch('https://apigatewayfront-end-production.up.railway.app/health');
       const data = await response.json();
       
       if (data.status === 'healthy') {
