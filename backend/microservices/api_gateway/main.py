@@ -121,8 +121,7 @@ class ConnectionManager:
                 if pair not in all_subscribed_pairs:
                     # No one is subscribed to this pair anymore
                     try:
-                        config = service_config["prediction"]
-                        unsubscribe_url = f"http://{config['host']}:{config['port']}/unsubscribe"
+                        unsubscribe_url = get_service_url("prediction", "/unsubscribe")
                         
                         async with httpx.AsyncClient(timeout=30.0) as client:
                             response = await client.post(unsubscribe_url, params={"trading_pair": pair})
@@ -200,9 +199,11 @@ def get_service_url(service_name: str, path: str = ""):
     if not config:
         raise ValueError(f"Unknown service: {service_name}")
     
-    # Use HTTPS for public domains (Railway), HTTP for localhost
-    protocol = "https" if "localhost" not in config['host'] else "http"
-    return f"{protocol}://{config['host']}:{config['port']}{path}"
+    # Use HTTPS for public domains (Railway) without explicit port; HTTP+port for localhost
+    if "localhost" in config['host']:
+        return f"http://{config['host']}:{config['port']}{path}"
+    else:
+        return f"https://{config['host']}{path}"
 
 def get_service_ws_url(service_name: str, path: str = ""):
     """Get the WebSocket URL for a microservice"""
@@ -210,9 +211,11 @@ def get_service_ws_url(service_name: str, path: str = ""):
     if not config:
         raise ValueError(f"Unknown service: {service_name}")
     
-    # Use WSS for public domains (Railway), WS for localhost
-    protocol = "wss" if "localhost" not in config['host'] else "ws"
-    return f"{protocol}://{config['host']}:{config['port']}{path}"
+    # Use WSS for public domains (Railway) without explicit port; WS+port for localhost
+    if "localhost" in config['host']:
+        return f"ws://{config['host']}:{config['port']}{path}"
+    else:
+        return f"wss://{config['host']}{path}"
 
 def get_protocol(host: str, secure: bool = True):
     """Get the appropriate protocol based on host"""
@@ -233,7 +236,8 @@ async def check_service_health(service_name: str):
     
     try:
         url = get_service_url(service_name, "/health")
-        response = await http_client.get(url, timeout=2.0)
+        logger.info(f"🔎 Health check -> {service_name}: {url}")
+        response = await http_client.get(url, timeout=5.0)
         
         if response.status_code == 200:
             data = response.json()
@@ -245,6 +249,7 @@ async def check_service_health(service_name: str):
                 "last_check": datetime.now()
             }
             
+            logger.info(f"✅ {service_name} health check successful")
             return is_healthy
         else:
             # Update cache
@@ -254,7 +259,9 @@ async def check_service_health(service_name: str):
             }
             return False
     except Exception as e:
+        # Log type and full error for better diagnosis
         logger.error(f"❌ Error checking {service_name} health: {str(e)}")
+        logger.error(f"❌ Error type: {type(e).__name__}")
         
         # Update cache
         service_status_cache[service_name] = {
