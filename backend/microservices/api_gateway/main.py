@@ -54,16 +54,19 @@ app.add_middleware(
 # Service configuration
 service_config = {
     "data_collection": {
-        "host": os.getenv("DATA_SERVICE_HOST", "localhost"),
-        "port": int(os.getenv("DATA_SERVICE_PORT", "5008")),  # Updated to match your running port
+        # Using the public domain provided for data collection service
+        "host": os.getenv("DATA_SERVICE_HOST", "datacollection-service-production.up.railway.app"),
+        "port": int(os.getenv("DATA_SERVICE_PORT", "5008")),
         "ws_path": "/ws/market-data"
     },
     "ml_training": {
-        "host": os.getenv("ML_SERVICE_HOST", "localhost"),
+        # Using the public domain provided for ML training service
+        "host": os.getenv("ML_SERVICE_HOST", "ml-traning-service-production.up.railway.app"),
         "port": int(os.getenv("ML_SERVICE_PORT", "5002"))
     },
     "prediction": {
-        "host": os.getenv("PREDICTION_SERVICE_HOST", "localhost"),
+        # Using the public domain provided for prediction service
+        "host": os.getenv("PREDICTION_SERVICE_HOST", "prediction-service-production.up.railway.app"),
         "port": int(os.getenv("PREDICTION_SERVICE_PORT", "5003")),
         "ws_path": "/ws/predictions"
     }
