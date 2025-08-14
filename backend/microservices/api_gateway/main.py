@@ -464,7 +464,7 @@ async def make_prediction(request: Request):
             )
 
 @app.get("/predict/{trading_pair}")
-async def quick_prediction(trading_pair: str, model_type: str = None):
+async def quick_prediction(trading_pair: str, model_type: str = None, model_name: str = None):
     """Quick prediction endpoint for a specific trading pair"""
     try:
         logger.info(f"🔮 Prediction request for trading pair: {trading_pair}")
@@ -473,6 +473,8 @@ async def quick_prediction(trading_pair: str, model_type: str = None):
         path = f"/predict-by-query?trading_pair={trading_pair}"
         if model_type:
             path += f"&model_type={model_type}"
+        if model_name:
+            path += f"&model_name={model_name}"
         
         result = await forward_request("prediction", path)
         logger.info(f"✅ Prediction successful for {trading_pair}")
@@ -484,10 +486,12 @@ async def quick_prediction(trading_pair: str, model_type: str = None):
             prediction_url = get_service_url("prediction", "/predict-by-query")
             
             async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    prediction_url, 
-                    params={"trading_pair": trading_pair, "model_type": model_type}
-                )
+                params = {"trading_pair": trading_pair}
+                if model_type:
+                    params["model_type"] = model_type
+                if model_name:
+                    params["model_name"] = model_name
+                response = await client.get(prediction_url, params=params)
                 if response.status_code == 200:
                     result = response.json()
                     logger.info(f"✅ Direct prediction successful for {trading_pair}")

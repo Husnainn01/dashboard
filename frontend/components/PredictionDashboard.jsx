@@ -175,7 +175,15 @@ const PredictionDashboard = () => {
 
   const fetchLatestPrediction = async () => {
     try {
-      const data = await getLatestPrediction(selectedPair);
+      // Read manual model selection from localStorage (set in MLControlPanel)
+      let modelName = null;
+      try {
+        const mapJson = localStorage.getItem('selected_model_name_per_pair');
+        const map = mapJson ? JSON.parse(mapJson) : {};
+        modelName = map[selectedPair] || null;
+      } catch (_) {}
+
+      const data = await getLatestPrediction(selectedPair, modelName);
       console.log('🤖 ML Prediction via API:', data);
       
       const predictionData = {

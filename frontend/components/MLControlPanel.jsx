@@ -42,6 +42,7 @@ const MLControlPanel = ({ selectedPair, onStatusChange }) => {
   const [isTraining, setIsTraining] = useState(false);
   const [trainingStatus, setTrainingStatus] = useState(null);
   const [selectedModelType, setSelectedModelType] = useState('xgboost');
+  const [selectedModelName, setSelectedModelName] = useState(null);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.7);
   const [updateInterval, setUpdateInterval] = useState(60);
   const [autoTrain, setAutoTrain] = useState(false);
@@ -73,8 +74,29 @@ const MLControlPanel = ({ selectedPair, onStatusChange }) => {
       
       if (pairModels.length > 0) {
         console.log(`📊 Found ${pairModels.length} models for ${selectedPair}`);
+        // Initialize selected model from localStorage or choose the most recent
+        const mapJson = localStorage.getItem('selected_model_name_per_pair');
+        const map = mapJson ? JSON.parse(mapJson) : {};
+        const preselected = map[selectedPair];
+        if (preselected && pairModels.some(m => (m.model_name || m.model_id) === preselected)) {
+          setSelectedModelName(preselected);
+        } else {
+          // pick latest by created_at if available, else first
+          const sorted = [...pairModels].sort((a,b) => {
+            const da = a.created_at ? new Date(a.created_at) : 0;
+            const db = b.created_at ? new Date(b.created_at) : 0;
+            return db - da;
+          });
+          const choice = (sorted[0]?.model_name) || (sorted[0]?.model_id) || null;
+          setSelectedModelName(choice);
+          if (choice) {
+            map[selectedPair] = choice;
+            localStorage.setItem('selected_model_name_per_pair', JSON.stringify(map));
+          }
+        }
       } else {
         console.log(`⚠️ No models found for ${selectedPair}`);
+        setSelectedModelName(null);
       }
     } catch (error) {
       console.error('Failed to fetch models info:', error);
@@ -214,6 +236,50 @@ const MLControlPanel = ({ selectedPair, onStatusChange }) => {
       <div className="panel-section">
         <h4>Model Status</h4>
         {getModelStatus()}
+      </div>
+      
+      {/* Model Selection */}
+      <div className="panel-section">
+        <h4>Model Selection</h4>
+        <div className="control-row">
+          <label>Selected Model:</label>
+          <select
+            value={selectedModelName || ''}
+            onChange={(e) => {
+              const newName = e.target.value || null;
+              setSelectedModelName(newName);
+              try {
+                const mapJson = localStorage.getItem('selected_model_name_per_pair');
+                const map = mapJson ? JSON.parse(mapJson) : {};
+                if (newName) {
+                  map[selectedPair] = newName;
+                } else {
+                  delete map[selectedPair];
+                }
+                localStorage.setItem('selected_model_name_per_pair', JSON.stringify(map));
+              } catch (_) {}
+            }}
+          >
+            <option value="">Auto (best model)</option>
+            {([...models.local_models, ...models.cloud_models]
+              .filter(m => m.trading_pair === selectedPair)
+              .sort((a,b) => {
+                const da = a.created_at ? new Date(a.created_at) : 0;
+                const db = b.created_at ? new Date(b.created_at) : 0;
+                return db - da;
+              })
+            ).map((m) => {
+              const name = m.model_name || m.model_id || 'unknown';
+              const algo = m.algorithm || 'unknown';
+              const when = m.created_at ? new Date(m.created_at).toLocaleString() : '';
+              return (
+                <option key={name} value={name}>
+                  {name} · {algo}{when ? ` · ${when}` : ''}
+                </option>
+              );
+            })}
+          </select>
+        </div>
       </div>
       
       {/* Training Controls */}

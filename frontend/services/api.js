@@ -100,8 +100,9 @@ export const fetchLatestCandles = async (params = {}) => {
  * @param {string} tradingPair - Trading pair to predict
  * @returns {Promise<Object>} Prediction data
  */
-export const getLatestPrediction = async (tradingPair = 'USD/BRL(OTC)') => {
-  return await apiRequest(`/predict/${encodeURIComponent(tradingPair)}`);
+export const getLatestPrediction = async (tradingPair = 'USD/BRL(OTC)', modelName = null) => {
+  const qp = modelName ? `?model_name=${encodeURIComponent(modelName)}` : '';
+  return await apiRequest(`/predict/${encodeURIComponent(tradingPair)}${qp}`);
 };
 
 /**
@@ -110,13 +111,16 @@ export const getLatestPrediction = async (tradingPair = 'USD/BRL(OTC)') => {
  * @param {string} modelType - Model type to use (optional)
  * @returns {Promise<Object>} Prediction data
  */
-export const requestPrediction = async (tradingPair = 'USD/BRL(OTC)', modelType = null) => {
+export const requestPrediction = async (tradingPair = 'USD/BRL(OTC)', modelType = null, modelName = null) => {
   const body = {
     trading_pair: tradingPair
   };
   
   if (modelType) {
     body.model_type = modelType;
+  }
+  if (modelName) {
+    body.model_name = modelName;
   }
   
   return await apiRequest('/predict', {

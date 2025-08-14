@@ -145,6 +145,7 @@ prediction_manager.monitoring_service = monitoring_svc
 class PredictionRequest(BaseModel):
     trading_pair: str
     model_type: Optional[str] = "xgboost"
+    model_name: Optional[str] = None
 
 class PredictionResponse(BaseModel):
     trading_pair: str
@@ -489,10 +490,19 @@ async def make_prediction(request: PredictionRequest):
     try:
         logger.info(f"🔮 Making prediction for {request.trading_pair}")
         
-        # Get the best model
-        model, scaler, metadata = await get_best_model(
-            request.trading_pair, request.model_type
-        )
+        # Load explicit model if provided, otherwise get best model
+        if getattr(request, 'model_name', None):
+            logger.info(f"🎛️ Explicit model selection: {request.model_name}")
+            model, scaler, metadata = await model_trainer.load_model(request.model_name)
+            # Ensure metadata fields exist
+            if isinstance(metadata, dict):
+                metadata.setdefault('model_name', request.model_name)
+                metadata.setdefault('trading_pair', request.trading_pair)
+        else:
+            # Get the best model
+            model, scaler, metadata = await get_best_model(
+                request.trading_pair, request.model_type
+            )
         
         # Prepare features
         features, candles_used = await prepare_features_for_prediction(request.trading_pair)
@@ -756,7 +766,7 @@ async def make_prediction(request: PredictionRequest):
             logger.warning(f"⚠️ Low confidence prediction: {confidence:.3f}")
             logger.info(f"🔍 Confidence threshold: {PREDICTION_CONFIDENCE_THRESHOLD}")
             model_name = metadata.get('model_name', 'unknown')
-            logger.info(f"🔍 Model used: {model_name}, Probability: {probability:.3f}, Direction: {'up' if probability > 0.5 else 'down'}")
+            logger.info(f"🔍 Model used: {model_name}, algo: {metadata.get('algorithm') if isinstance(metadata, dict) else 'unknown'}, pair: {request.trading_pair}, Probability: {probability:.3f}, Direction: {'up' if probability > 0.5 else 'down'}")
         
         # Create prediction object
         prediction_data = PredictionData(
@@ -822,17 +832,17 @@ async def make_prediction(request: PredictionRequest):
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 @app.get("/predict/{trading_pair}")
-async def quick_prediction(trading_pair: str, model_type: str = None):
+async def quick_prediction(trading_pair: str, model_type: str = None, model_name: str = None):
     """Quick prediction endpoint for a specific trading pair"""
     # No fallback predictions - either return a real prediction or an error
-    request = PredictionRequest(trading_pair=trading_pair, model_type=model_type)
+    request = PredictionRequest(trading_pair=trading_pair, model_type=model_type, model_name=model_name)
     return await make_prediction(request)
 
 @app.get("/predict-by-query")
-async def quick_prediction_by_query(trading_pair: str, model_type: str = None):
+async def quick_prediction_by_query(trading_pair: str, model_type: str = None, model_name: str = None):
     """Alternative prediction endpoint using query parameters instead of path parameters"""
     # No fallback predictions - either return a real prediction or an error
-    request = PredictionRequest(trading_pair=trading_pair, model_type=model_type)
+    request = PredictionRequest(trading_pair=trading_pair, model_type=model_type, model_name=model_name)
     return await make_prediction(request)
 
 @app.post("/subscribe")
