@@ -139,7 +139,9 @@ class ConnectionManager:
                 try:
                     config = service_config["prediction"]
                     new_priority = next(iter(all_subscribed_pairs))
-                    priority_url = f"http://{config['host']}:{config['port']}/set-priority"
+                    # Use HTTPS for public domains (Railway), HTTP for localhost
+                    protocol = "https" if "localhost" not in config['host'] else "http"
+                    priority_url = f"{protocol}://{config['host']}:{config['port']}/set-priority"
                     
                     async with httpx.AsyncClient(timeout=30.0) as client:
                         priority_response = await client.post(priority_url, params={"trading_pair": new_priority})
@@ -198,7 +200,26 @@ def get_service_url(service_name: str, path: str = ""):
     if not config:
         raise ValueError(f"Unknown service: {service_name}")
     
-    return f"http://{config['host']}:{config['port']}{path}"
+    # Use HTTPS for public domains (Railway), HTTP for localhost
+    protocol = "https" if "localhost" not in config['host'] else "http"
+    return f"{protocol}://{config['host']}:{config['port']}{path}"
+
+def get_service_ws_url(service_name: str, path: str = ""):
+    """Get the WebSocket URL for a microservice"""
+    config = service_config.get(service_name)
+    if not config:
+        raise ValueError(f"Unknown service: {service_name}")
+    
+    # Use WSS for public domains (Railway), WS for localhost
+    protocol = "wss" if "localhost" not in config['host'] else "ws"
+    return f"{protocol}://{config['host']}:{config['port']}{path}"
+
+def get_protocol(host: str, secure: bool = True):
+    """Get the appropriate protocol based on host"""
+    if "localhost" in host:
+        return "https" if secure else "http"
+    else:
+        return "https" if secure else "http"
 
 async def check_service_health(service_name: str):
     """Check if a service is healthy"""
@@ -413,7 +434,9 @@ async def make_prediction(request: Request):
         # Try direct request to prediction service as fallback
         try:
             config = service_config["prediction"]
-            prediction_url = f"http://{config['host']}:{config['port']}/predict"
+            # Use HTTPS for public domains (Railway), HTTP for localhost
+            protocol = "https" if "localhost" not in config['host'] else "http"
+            prediction_url = f"{protocol}://{config['host']}:{config['port']}/predict"
             
             async with httpx.AsyncClient() as client:
                 response = await client.post(prediction_url, json=data)
@@ -452,7 +475,9 @@ async def quick_prediction(trading_pair: str, model_type: str = None):
         # Try direct request to prediction service
         try:
             config = service_config["prediction"]
-            prediction_url = f"http://{config['host']}:{config['port']}/predict-by-query"
+            # Use HTTPS for public domains (Railway), HTTP for localhost
+            protocol = "https" if "localhost" not in config['host'] else "http"
+            prediction_url = f"{protocol}://{config['host']}:{config['port']}/predict-by-query"
             
             async with httpx.AsyncClient() as client:
                 response = await client.get(
@@ -510,7 +535,9 @@ async def websocket_market_data(websocket: WebSocket):
     try:
         # Get data service WebSocket URL
         config = service_config["data_collection"]
-        ws_url = f"ws://{config['host']}:{config['port']}{config['ws_path']}"
+        # Use WSS for public domains (Railway), WS for localhost
+        ws_protocol = "wss" if "localhost" not in config['host'] else "ws"
+        ws_url = f"{ws_protocol}://{config['host']}:{config['port']}{config['ws_path']}"
         
         # Connect to data service WebSocket
         async with httpx.AsyncClient(timeout=None) as client:
@@ -570,7 +597,9 @@ async def websocket_predictions(websocket: WebSocket):
                     # Also subscribe in the prediction service
                     try:
                         config = service_config["prediction"]
-                        subscribe_url = f"http://{config['host']}:{config['port']}/subscribe"
+                        # Use HTTPS for public domains (Railway), HTTP for localhost
+                        protocol = "https" if "localhost" not in config['host'] else "http"
+                        subscribe_url = f"{protocol}://{config['host']}:{config['port']}/subscribe"
                         
                         async with httpx.AsyncClient(timeout=30.0) as client:
                             response = await client.post(subscribe_url, params={"trading_pair": trading_pair})
@@ -580,7 +609,9 @@ async def websocket_predictions(websocket: WebSocket):
                                 # If this is the only active subscription, also set it as priority
                                 active_pairs = len(manager.get_subscribed_pairs())
                                 if active_pairs == 1:
-                                    priority_url = f"http://{config['host']}:{config['port']}/set-priority"
+                                    # Use HTTPS for public domains (Railway), HTTP for localhost
+                                    protocol = "https" if "localhost" not in config['host'] else "http"
+                                    priority_url = f"{protocol}://{config['host']}:{config['port']}/set-priority"
                                     priority_response = await client.post(priority_url, params={"trading_pair": trading_pair})
                                     if priority_response.status_code == 200:
                                         logger.info(f"✅ Set {trading_pair} as priority pair in prediction service")
@@ -602,7 +633,9 @@ async def websocket_predictions(websocket: WebSocket):
                     # Fetch and send latest prediction
                     try:
                         config = service_config["prediction"]
-                        prediction_url = f"http://{config['host']}:{config['port']}/predict-by-query"
+                        # Use HTTPS for public domains (Railway), HTTP for localhost
+                        protocol = "https" if "localhost" not in config['host'] else "http"
+                        prediction_url = f"{protocol}://{config['host']}:{config['port']}/predict-by-query"
                         logger.info(f"📡 Fetching initial prediction from: {prediction_url}?trading_pair={trading_pair}")
                         
                         try:
@@ -663,7 +696,9 @@ async def websocket_predictions(websocket: WebSocket):
                         # No one is subscribed to this pair anymore, unsubscribe from prediction service
                         try:
                             config = service_config["prediction"]
-                            unsubscribe_url = f"http://{config['host']}:{config['port']}/unsubscribe"
+                            # Use HTTPS for public domains (Railway), HTTP for localhost
+                            protocol = "https" if "localhost" not in config['host'] else "http"
+                            unsubscribe_url = f"{protocol}://{config['host']}:{config['port']}/unsubscribe"
                             
                             async with httpx.AsyncClient(timeout=30.0) as client:
                                 response = await client.post(unsubscribe_url, params={"trading_pair": trading_pair})
@@ -676,7 +711,9 @@ async def websocket_predictions(websocket: WebSocket):
                             # If there are other pairs, set one as priority
                             if all_subscribed_pairs:
                                 new_priority = next(iter(all_subscribed_pairs))
-                                priority_url = f"http://{config['host']}:{config['port']}/set-priority"
+                                # Use HTTPS for public domains (Railway), HTTP for localhost
+                                protocol = "https" if "localhost" not in config['host'] else "http"
+                                priority_url = f"{protocol}://{config['host']}:{config['port']}/set-priority"
                                 async with httpx.AsyncClient(timeout=30.0) as priority_client:
                                     priority_response = await priority_client.post(priority_url, params={"trading_pair": new_priority})
                                     if priority_response.status_code == 200:
@@ -797,7 +834,9 @@ async def connect_to_service(client_ws: WebSocket, service_name: str, connection
     try:
         # Get service WebSocket URL
         config = service_config[service_name]
-        ws_url = f"ws://{config['host']}:{config['port']}{config['ws_path']}"
+        # Use WSS for public domains (Railway), WS for localhost
+        ws_protocol = "wss" if "localhost" not in config['host'] else "ws"
+        ws_url = f"{ws_protocol}://{config['host']}:{config['port']}{config['ws_path']}"
         
         # Connect to service WebSocket
         async with httpx.AsyncClient(timeout=None) as client:
@@ -904,7 +943,9 @@ async def poll_predictions():
                             
                             # Get prediction from prediction service
                             config = service_config["prediction"]
-                            prediction_url = f"http://{config['host']}:{config['port']}/predict-by-query"
+                            # Use HTTPS for public domains (Railway), HTTP for localhost
+                            protocol = "https" if "localhost" not in config['host'] else "http"
+                            prediction_url = f"{protocol}://{config['host']}:{config['port']}/predict-by-query"
                             logger.info(f"🔍 Polling prediction from: {prediction_url}?trading_pair={trading_pair}")
                             
                             try:
