@@ -113,14 +113,16 @@ const PredictionDashboard = () => {
           console.log('🤖 ML WebSocket message:', data);
           
           if (data.type === 'prediction' && data.trading_pair === selectedPair) {
+            // Add a timestamp to ensure we're getting fresh data
             const predictionData = {
               direction: data.prediction, // Changed from data.direction to data.prediction
               probability: data.probability,
               confidence: data.confidence,
               expectedChange: data.expected_change,
               modelType: data.model_used,
-              timestamp: parseUtc(data.timestamp),
-              tradingPair: data.trading_pair
+              timestamp: parseUtc(data.timestamp || new Date().toISOString()),
+              tradingPair: data.trading_pair,
+              _receivedAt: new Date().getTime() // Add client-side timestamp for freshness tracking
             };
             
             console.log('🤖 ML Prediction received:', predictionData);
@@ -197,14 +199,17 @@ const PredictionDashboard = () => {
         tradingPair: selectedPair
       };
       
+      // Always update the prediction with the latest data
       setPrediction(predictionData);
       
-      // Add to history if not already there
+      // Add to history if it's different from the previous one
       setPredictionHistory(prev => {
-        // Check if we already have this prediction (avoid duplicates)
+        // Check if we already have this exact prediction (avoid duplicates)
         if (prev.length > 0 && 
             prev[0].direction === predictionData.direction && 
-            prev[0].probability === predictionData.probability) {
+            prev[0].probability === predictionData.probability &&
+            prev[0].confidence === predictionData.confidence &&
+            prev[0].modelType === predictionData.modelType) {
           return prev;
         }
         

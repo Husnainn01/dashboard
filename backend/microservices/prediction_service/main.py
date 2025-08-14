@@ -192,94 +192,70 @@ async def initialize_service():
     return True
 
 async def prepare_features_for_prediction(trading_pair: str, lookback_candles: int = 100):
-    """Prepare features for prediction with caching for performance"""
+    """Prepare features for prediction using fresh data every time"""
     global mongodb_manager, feature_engineer, prediction_service_state
     
-    # Check if we have cached features for this pair
-    feature_cache = prediction_service_state.get("feature_cache", {})
-    cache_key = f"{trading_pair}_{lookback_candles}"
-    cached_features = feature_cache.get(cache_key)
-    
-    # Use cached features if they're recent (within 30 seconds)
-    if cached_features and cached_features.get("timestamp", 0) > time.time() - 30:
-        logger.info(f"🔍 Using cached features for {trading_pair} (age: {time.time() - cached_features['timestamp']:.1f}s)")
-        return cached_features["features"], cached_features["candle_count"]
+    logger.info(f"🔄 Preparing fresh features for {trading_pair} with {lookback_candles} lookback candles")
     
     # Start timing
     start_time = time.time()
     
-    # Get recent candles
-    candles = await mongodb_manager.get_candles_for_training(
-        limit=lookback_candles, trading_pair=trading_pair
-    )
-    
-    if len(candles) < 30:  # Reduced from 50 to allow more pairs to work
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Insufficient data: {len(candles)} candles (need at least 30)"
+    try:
+        # Get recent candles
+        candles = await mongodb_manager.get_candles_for_training(
+            limit=lookback_candles, trading_pair=trading_pair
         )
-    
-    # Extract features
-    feature_df = await feature_engineer.extract_features_from_candles(
-        candles, target_next=False
-    )
-    
-    if feature_df.empty:
-        raise HTTPException(status_code=400, detail="Failed to extract features")
-    
-    # Get the latest feature row for prediction
-    latest_features = feature_df.iloc[-1:].drop(columns=['timestamp'], errors='ignore')
-    
-    # Remove volume-related features that might not have been present during training
-    # These are the features causing the mismatch error
-    volume_features = ['price_volume_correlation', 'volume_ratio', 'volume_sma_10']
-    for feature in volume_features:
-        if feature in latest_features.columns:
-            logger.info(f"🔧 Removing feature not present during training: {feature}")
-            latest_features = latest_features.drop(columns=[feature], errors='ignore')
-    
-    # Cache the features
-    if "feature_cache" not in prediction_service_state:
-        prediction_service_state["feature_cache"] = {}
         
-    prediction_service_state["feature_cache"][cache_key] = {
-        "features": latest_features,
-        "candle_count": len(candles),
-        "timestamp": time.time()
-    }
-    
-    # Limit cache size to 10 pairs
-    if len(prediction_service_state["feature_cache"]) > 10:
-        # Remove the oldest entry
-        oldest_key = min(
-            prediction_service_state["feature_cache"].keys(),
-            key=lambda k: prediction_service_state["feature_cache"][k].get("timestamp", 0)
+        if len(candles) < 30:  # Reduced from 50 to allow more pairs to work
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Insufficient data: {len(candles)} candles (need at least 30)"
+            )
+        
+        # Extract features
+        feature_df = await feature_engineer.extract_features_from_candles(
+            candles, target_next=False
         )
-        if oldest_key != cache_key:
-            logger.info(f"🧹 Removing oldest features from cache: {oldest_key}")
-            del prediction_service_state["feature_cache"][oldest_key]
-    
-    # Log performance
-    end_time = time.time()
-    logger.info(f"⏱️ Feature extraction took {(end_time - start_time) * 1000:.2f}ms for {trading_pair}")
-    
-    return latest_features, len(candles)
+        
+        if feature_df.empty:
+            raise HTTPException(status_code=400, detail="Failed to extract features")
+        
+        # Get the latest feature row for prediction
+        latest_features = feature_df.iloc[-1:].drop(columns=['timestamp'], errors='ignore')
+        
+        # Remove volume-related features that might not have been present during training
+        # These are the features causing the mismatch error
+        volume_features = ['price_volume_correlation', 'volume_ratio', 'volume_sma_10']
+        for feature in volume_features:
+            if feature in latest_features.columns:
+                logger.info(f"🔧 Removing feature not present during training: {feature}")
+                latest_features = latest_features.drop(columns=[feature], errors='ignore')
+        
+        # Log information about the freshness of the data
+        if candles and len(candles) > 0:
+            latest_candle_time = candles[-1].get('timestamp')
+            if latest_candle_time:
+                from datetime import datetime
+                import pytz
+                time_diff = datetime.now(pytz.UTC) - latest_candle_time
+                logger.info(f"⏰ Latest candle is from {time_diff.total_seconds() / 60:.1f} minutes ago")
+                if time_diff.total_seconds() > 300:  # 5 minutes
+                    logger.warning(f"⚠️ Using candle data from {time_diff.total_seconds() / 60:.1f} minutes ago")
+        
+        # Log performance
+        end_time = time.time()
+        logger.info(f"⏱️ Feature extraction took {(end_time - start_time) * 1000:.2f}ms for {trading_pair}")
+        
+        return latest_features, len(candles)
+    except Exception as e:
+        logger.error(f"❌ Error preparing features: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error preparing features: {str(e)}")
 
 async def get_best_model(trading_pair: str, algorithm: str = None):
-    """Get the best available model for a trading pair"""
+    """Get the best available model for a trading pair - always fetches the latest model"""
     global model_trainer, prediction_service_state
     
-    # Create cache key
-    cache_key = f"{trading_pair}_{algorithm or 'default'}"
-    
-    # Check if we have this model in cache
-    model_cache = prediction_service_state.get("model_cache", {})
-    cached_model = model_cache.get(cache_key)
-    
-    # Use cached model if available and not expired (5 minutes)
-    if cached_model and cached_model.get("timestamp", 0) > time.time() - 300:
-        logger.info(f"🔍 Using cached model for {trading_pair} ({algorithm or 'default'})")
-        return cached_model["model"], cached_model["scaler"], cached_model["metadata"]
+    logger.info(f"🔄 Getting latest model for {trading_pair} ({algorithm or 'default'})")
     
     # Start timing
     start_time = time.time()
@@ -341,7 +317,7 @@ async def get_best_model(trading_pair: str, algorithm: str = None):
                 detail=f"No models found for trading pair: {trading_pair}"
             )
         
-        # Normalize metrics and select model with highest accuracy
+        # Normalize metrics and ensure all models have required fields
         # Check if models have metrics field, and add a default if not
         for m in filtered_models:
             if 'metrics' not in m:
@@ -353,11 +329,49 @@ async def get_best_model(trading_pair: str, algorithm: str = None):
             elif 'accuracy' not in m['metrics']:
                 logger.warning(f"⚠️ Model {m.get('model_name', 'unknown')} missing accuracy metric, adding default")
                 m['metrics']['accuracy'] = 0.5
+                
+            # Ensure timestamp exists for sorting
+            if 'timestamp' not in m or not isinstance(m['timestamp'], (int, float)):
+                # Try to extract timestamp from other fields
+                if 'created_at' in m and isinstance(m['created_at'], str):
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(m['created_at'].replace('Z', '+00:00'))
+                        m['timestamp'] = dt.timestamp()
+                    except Exception:
+                        m['timestamp'] = 0
+                else:
+                    m['timestamp'] = 0
 
-        # Select the model with highest accuracy
-        best_model = max(filtered_models, key=lambda x: x.get('metrics', {}).get('accuracy', 0.5))
+        # Sort models by creation time (newest first) and then by accuracy
+        # This ensures we get the most recent high-performing model
+        sorted_models = sorted(
+            filtered_models,
+            key=lambda x: (
+                # First sort by timestamp (newest first)
+                -float(x.get('timestamp', 0) if isinstance(x.get('timestamp'), (int, float)) else 0),
+                # Then by accuracy (highest first)
+                x.get('metrics', {}).get('accuracy', 0.5)
+            ),
+            reverse=True
+        )
+        
+        # Select the best model (newest high-performing model)
+        best_model = sorted_models[0] if sorted_models else None
+        if not best_model:
+            raise HTTPException(status_code=404, detail=f"No suitable models found for {trading_pair}")
+            
         model_id = best_model.get('model_id', 'unknown')
         logger.info(f"✅ Selected model: {model_id} for {trading_pair}")
+        
+        # Log model selection details
+        if len(sorted_models) > 1:
+            logger.info(f"📊 Selected from {len(sorted_models)} available models for {trading_pair}")
+            # Log the top 3 models considered
+            for i, model in enumerate(sorted_models[:3]):
+                accuracy = model.get('metrics', {}).get('accuracy', 0.5)
+                timestamp = model.get('timestamp', 'unknown')
+                logger.info(f"📊 Model {i+1}: ID={model.get('model_id', 'unknown')}, Accuracy={accuracy:.4f}, Timestamp={timestamp}")
         
         # Load the model
         try:
@@ -378,31 +392,25 @@ async def get_best_model(trading_pair: str, algorithm: str = None):
                 metadata.setdefault('trading_pair', best_model.get('trading_pair'))
                 metadata.setdefault('model_name', model_name)
             
-            # Cache the model
-            if "model_cache" not in prediction_service_state:
-                prediction_service_state["model_cache"] = {}
-                
-            prediction_service_state["model_cache"][cache_key] = {
-                "model": model,
-                "scaler": scaler,
-                "metadata": best_model,
-                "timestamp": time.time()
-            }
+            # Log model details for debugging
+            logger.info(f"📊 Using model {model_name} for {trading_pair}")
+            if isinstance(metadata, dict) and 'metrics' in metadata:
+                logger.info(f"📊 Model metrics: {metadata['metrics']}")
             
-            # Limit cache size to 5 models
-            if len(prediction_service_state["model_cache"]) > 5:
-                # Remove the oldest model
-                oldest_key = min(
-                    prediction_service_state["model_cache"].keys(),
-                    key=lambda k: prediction_service_state["model_cache"][k].get("timestamp", 0)
-                )
-                if oldest_key != cache_key:
-                    logger.info(f"🧹 Removing oldest model from cache: {oldest_key}")
-                    del prediction_service_state["model_cache"][oldest_key]
+            # Log when the model was trained (if available)
+            if isinstance(metadata, dict) and 'trained_at' in metadata:
+                logger.info(f"📊 Model trained at: {metadata['trained_at']}")
+            elif isinstance(best_model, dict) and 'created_at' in best_model:
+                logger.info(f"📊 Model created at: {best_model['created_at']}")
+            elif isinstance(best_model, dict) and 'timestamp' in best_model:
+                logger.info(f"📊 Model timestamp: {best_model['timestamp']}")
+            else:
+                logger.info(f"📊 Model timestamp not available")
             
             # Log performance
             end_time = time.time()
             logger.info(f"⏱️ Model loading took {(end_time - start_time) * 1000:.2f}ms")
+            logger.info(f"✅ Successfully loaded fresh model for {trading_pair}")
             
             return model, scaler, metadata
         except Exception as e:
@@ -506,7 +514,11 @@ async def make_prediction(request: PredictionRequest):
             )
         
         # Prepare features
-        features, candles_used = await prepare_features_for_prediction(request.trading_pair)
+        try:
+            features, candles_used = await prepare_features_for_prediction(request.trading_pair)
+        except Exception as e:
+            logger.error(f"❌ Error preparing features: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error preparing features: {str(e)}")
         
         # Ensure features match what the model was trained on
         try:
@@ -591,22 +603,45 @@ async def make_prediction(request: PredictionRequest):
                     
                     # Fit with current features
                     logger.info(f"🔧 Fitting new scaler with current features ({features.shape})")
-                    scaler.fit(features)
                     
-                    # Transform the features
-                    features_scaled = scaler.transform(features)
-                    logger.info(f"✅ Features scaled successfully with new scaler")
-                    
-                    # Log detailed information about the new scaler
-                    logger.info(f"🔍 New scaler attributes: n_features_in_={scaler.n_features_in_}, " +
-                               f"n_samples_seen_={getattr(scaler, 'n_samples_seen_', 'N/A')}")
-                    logger.info(f"🔍 New scaler mean shape: {scaler.mean_.shape}, scale shape: {scaler.scale_.shape}")
-                    
-                except Exception as inner_e:
-                    # If all scaling attempts fail, use unscaled features
-                    logger.error(f"❌ Failed to create fallback scaler: {str(inner_e)}")
+                    try:
+                        # Fit the scaler and transform features
+                        scaler.fit(features)
+                        features_scaled = scaler.transform(features)
+                        
+                        # Log detailed information about the new scaler
+                        logger.info(f"✅ Features scaled successfully with new scaler")
+                        logger.info(f"🔍 New scaler attributes: n_features_in_={scaler.n_features_in_}, " +
+                                  f"n_samples_seen_={getattr(scaler, 'n_samples_seen_', 'N/A')}")
+                        logger.info(f"🔍 New scaler mean shape: {scaler.mean_.shape}, scale shape: {scaler.scale_.shape}")
+                    except Exception as inner_e:
+                        # If scaling fails, try with a fallback approach
+                        logger.warning(f"⚠️ Primary scaling failed: {str(inner_e)}, trying fallback")
+                        
+                        try:
+                            # Create a new scaler with the same parameters
+                            fallback_scaler = StandardScaler()
+                            
+                            # Ensure we're working with numpy array
+                            feature_values = features.values if hasattr(features, 'values') else features
+                            
+                            # Fit on the features
+                            fallback_scaler.fit(feature_values)
+                            
+                            # Scale the features
+                            features_scaled = fallback_scaler.transform(feature_values)
+                            
+                            logger.info(f"🔍 Fallback scaler succeeded")
+                        except Exception as fallback_e:
+                            # If all scaling attempts fail, use unscaled features
+                            logger.error(f"❌ All scaling attempts failed: {str(fallback_e)}")
+                            logger.warning(f"⚠️ Using unscaled features as last resort")
+                            features_scaled = features.values if hasattr(features, 'values') else features
+                except Exception as outer_e:
+                    # If everything fails, use unscaled features
+                    logger.error(f"❌ Complete scaling failure: {str(outer_e)}")
                     logger.warning(f"⚠️ Using unscaled features as last resort")
-                    features_scaled = features.values
+                    features_scaled = features.values if hasattr(features, 'values') else features
         else:
             logger.warning(f"⚠️ No scaler available, using unscaled features")
             features_scaled = features.values
@@ -716,12 +751,30 @@ async def make_prediction(request: PredictionRequest):
             
             # Make the prediction with robust class/probability mapping
             predicted_class = None
-            prediction_proba = model.predict_proba(features_scaled)[0] if hasattr(model, 'predict_proba') else [0.5, 0.5]
+            
+            # Log feature values to help debug
+            if isinstance(features_scaled, pd.DataFrame):
+                logger.info(f"🔍 Feature sample for prediction: {features_scaled.iloc[0].head(5).to_dict()}")
+            else:
+                logger.info(f"🔍 Feature shape for prediction: {features_scaled.shape}")
+            
+            # Get prediction probabilities
+            try:
+                prediction_proba = model.predict_proba(features_scaled)[0] if hasattr(model, 'predict_proba') else [0.5, 0.5]
+                logger.info(f"🔍 Raw prediction probabilities: {prediction_proba}")
+            except Exception as e:
+                logger.error(f"❌ Error getting prediction probabilities: {str(e)}")
+                prediction_proba = [0.5, 0.5]
+            
+            # Get predicted class
             try:
                 predicted_class = model.predict(features_scaled)[0]
-            except Exception:
+                logger.info(f"🔍 Raw predicted class: {predicted_class}")
+            except Exception as e:
+                logger.error(f"❌ Error getting predicted class: {str(e)}")
                 predicted_class = None
-
+            
+            # Get model classes
             classes = getattr(model, 'classes_', None)
             if classes is not None and hasattr(classes, '__len__') and len(classes) == len(prediction_proba):
                 classes_list = list(classes)
@@ -730,9 +783,12 @@ async def make_prediction(request: PredictionRequest):
 
             # Log mapping context (debug)
             try:
-                logger.info(f"🔎 classes_={classes_list} predicted_class={predicted_class} proba={list(prediction_proba)}")
-            except Exception:
-                pass
+                logger.debug(f"Classes: {classes_list}, Probabilities: {prediction_proba}")
+                if classes_list and len(classes_list) == len(prediction_proba):
+                    logger.debug(f"Class 0 ({classes_list[0]}): {prediction_proba[0]:.4f}")
+                    logger.debug(f"Class 1 ({classes_list[1]}): {prediction_proba[1]:.4f}")
+            except Exception as e:
+                logger.warning(f"Could not log class mapping: {str(e)}")
 
             # Resolve up_index reliably
             up_index = None
@@ -750,23 +806,23 @@ async def make_prediction(request: PredictionRequest):
                     except Exception:
                         pass
 
-            if up_index is not None:
-                prob_up = float(prediction_proba[up_index])
-            else:
-                # Fallback: assume index 1 is 'up' if binary
-                prob_up = float(prediction_proba[1]) if len(prediction_proba) > 1 else float(max(prediction_proba))
+                if up_index is not None:
+                    prob_up = float(prediction_proba[up_index])
+                else:
+                    # Fallback: assume index 1 is 'up' if binary
+                    prob_up = float(prediction_proba[1]) if len(prediction_proba) > 1 else float(max(prediction_proba))
 
-            # Determine binary direction using predicted_class first, then prob
-            if predicted_class is not None:
-                pcs = str(predicted_class).lower()
-                if predicted_class == 1 or pcs == 'up' or pcs == '1' or predicted_class is True:
-                    prediction_binary = 1
-                elif predicted_class == 0 or pcs == 'down' or pcs == '0' or predicted_class is False:
-                    prediction_binary = 0
+                # Determine binary direction using predicted_class first, then prob
+                if predicted_class is not None:
+                    pcs = str(predicted_class).lower()
+                    if predicted_class == 1 or pcs == 'up' or pcs == '1' or predicted_class is True:
+                        prediction_binary = 1
+                    elif predicted_class == 0 or pcs == 'down' or pcs == '0' or predicted_class is False:
+                        prediction_binary = 0
+                    else:
+                        prediction_binary = 1 if prob_up >= 0.5 else 0
                 else:
                     prediction_binary = 1 if prob_up >= 0.5 else 0
-            else:
-                prediction_binary = 1 if prob_up >= 0.5 else 0
         except Exception as e:
             logger.error(f"❌ Error during prediction: {str(e)}")
             # Fallback to random prediction
@@ -778,22 +834,46 @@ async def make_prediction(request: PredictionRequest):
         # Convert to readable format
         prediction_direction = 'up' if prediction_binary == 1 else 'down'
         
-        # Calculate confidence based on probability distribution and historical accuracy
-        # The further from 0.5, the more confident the model is
-        raw_confidence = abs(prediction_proba[1] - 0.5) * 2  # Scale to [0, 1]
+        # Calculate confidence based on probability distribution and market volatility
+        # Get recent volatility from candles to make confidence market-aware
+        recent_volatility = 0.001  # Default value if we can't calculate from candles
         
-        # Apply sigmoid function to make confidence curve more realistic
-        # This ensures small differences near 0.5 result in low confidence
-        # while strong signals result in high confidence
+        try:
+            # Get the candles used for this prediction
+            recent_candles = candles_used[-10:]  # Use last 10 candles
+            
+            if len(recent_candles) > 1:
+                # Calculate recent price changes as percentage
+                price_changes = [abs(c['close'] - c['open']) / c['open'] for c in recent_candles]
+                recent_volatility = sum(price_changes) / len(price_changes)
+                logger.info(f"📊 Recent market volatility: {recent_volatility:.6f} ({len(recent_candles)} candles)")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not calculate market volatility: {str(e)}")
+        
+        # The further from 0.5, the more confident the model is
+        raw_confidence = abs(prob_up - 0.5) * 2  # Scale to [0, 1]
+        
+        # Apply sigmoid function with volatility adjustment
+        # Higher volatility should reduce confidence unless signal is very strong
         import math
-        sigmoid_confidence = 1 / (1 + math.exp(-10 * (raw_confidence - 0.5)))
-        confidence = min(0.95, sigmoid_confidence)  # Cap at 95% to avoid overconfidence
+        volatility_factor = max(1.0, min(3.0, 1.0 + recent_volatility * 100))
+        sigmoid_slope = 10 / volatility_factor  # Reduce slope when volatility is high
+        
+        sigmoid_confidence = 1 / (1 + math.exp(-sigmoid_slope * (raw_confidence - 0.5)))
+        
+        # Cap confidence based on volatility - more volatile markets should have lower max confidence
+        max_confidence = min(0.95, 1.0 / (1.0 + recent_volatility * 50))
+        confidence = min(max_confidence, sigmoid_confidence)
+        
+        logger.info(f"📊 Confidence calculation: raw={raw_confidence:.4f}, sigmoid={sigmoid_confidence:.4f}, final={confidence:.4f}")
         
         # Store probability of 'up' for reference
         probability = float(prob_up)
         
-        # Calculate expected change (simplified)
-        expected_change = (probability - 0.5) * 2 * 0.001  # 0.1% base change scaled by probability
+        # Calculate expected change based on recent market volatility
+        # Higher volatility means potentially larger price movements
+        expected_change = (probability - 0.5) * 2 * max(0.001, recent_volatility)
+        logger.info(f"📊 Expected change calculation: {expected_change:.6f} based on volatility {recent_volatility:.6f}")
         
         # Check confidence threshold
         if confidence < PREDICTION_CONFIDENCE_THRESHOLD:

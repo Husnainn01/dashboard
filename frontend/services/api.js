@@ -20,12 +20,16 @@ console.log('📡 WebSocket URL:', WS_BASE_URL);
  */
 const apiRequest = async (endpoint, options = {}) => {
   try {
-    const url = `${API_BASE_URL}${endpoint}`;
+    // Add cache-busting parameter for GET requests
+    const cacheBuster = options.method === 'GET' ? `${endpoint.includes('?') ? '&' : '?'}_t=${Date.now()}` : '';
+    const url = `${API_BASE_URL}${endpoint}${cacheBuster}`;
     console.log(`🌐 API Request: ${options.method || 'GET'} ${url}`);
     
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
         ...options.headers
       },
       ...options
