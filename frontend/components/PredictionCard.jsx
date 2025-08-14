@@ -8,6 +8,7 @@ const PredictionCard = ({ prediction, timezone = 'UTC', compact = false }) => {
   const { 
     direction, 
     probability, 
+    confidence,
     expectedChange, 
     modelType, 
     timestamp, 
@@ -19,6 +20,7 @@ const PredictionCard = ({ prediction, timezone = 'UTC', compact = false }) => {
     hour: '2-digit', 
     minute: '2-digit',
     second: '2-digit',
+    hour12: false,
     timeZone: timezone
   }) : 'Unknown';
   
@@ -29,8 +31,14 @@ const PredictionCard = ({ prediction, timezone = 'UTC', compact = false }) => {
     timeZone: timezone
   }) : 'Unknown';
   
-  // Calculate confidence percentage
-  const confidencePercent = probability ? Math.round(probability * 100) : 0;
+  // Derive a friendly timezone label
+  const timezoneLabel = timezone === 'Asia/Bangkok' ? 'UTC+7' : timezone;
+  
+  // Calculate confidence percentage (prefer backend confidence; fallback to probability-derived)
+  const confidenceValue = 
+    typeof confidence === 'number' ? confidence : 
+    (typeof probability === 'number' ? Math.min(1, Math.max(0, Math.abs(probability - 0.5) * 2)) : 0);
+  const confidencePercent = Math.round(confidenceValue * 100);
   
   // Determine color scheme based on direction
   const isUp = direction === 'up';
@@ -124,7 +132,7 @@ const PredictionCard = ({ prediction, timezone = 'UTC', compact = false }) => {
           </div>
           <div className="expanded-row">
             <span className="expanded-label">Timezone:</span>
-            <span className="expanded-value">{timezone}</span>
+            <span className="expanded-value">{timezoneLabel}</span>
           </div>
         </div>
       )}

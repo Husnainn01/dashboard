@@ -17,6 +17,7 @@ import json
 import uvicorn
 import numpy as np
 import pandas as pd
+import pytz
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -713,26 +714,59 @@ async def make_prediction(request: PredictionRequest):
                         
                         logger.info(f"✅ Removed {actual_features - expected_features} extra features")
             
-            # Make the prediction
-            raw_pred = model.predict(features_scaled)[0]
+            # Make the prediction with robust class/probability mapping
+            predicted_class = None
             prediction_proba = model.predict_proba(features_scaled)[0] if hasattr(model, 'predict_proba') else [0.5, 0.5]
-            # Map probability to class label '1' (up) robustly
-            prob_up = None
             try:
-                if hasattr(model, 'classes_') and len(getattr(model, 'classes_', [])) == len(prediction_proba):
-                    classes = list(model.classes_)
-                    if 1 in classes:
-                        up_index = classes.index(1)
-                        prob_up = float(prediction_proba[up_index])
-                # Fallback: assume index 1 is 'up' when binary
-                if prob_up is None and len(prediction_proba) == 2:
-                    prob_up = float(prediction_proba[1])
+                predicted_class = model.predict(features_scaled)[0]
             except Exception:
-                # Final fallback
-                prob_up = float(prediction_proba[1]) if len(prediction_proba) > 1 else 0.5
-            
-            # Derive direction from prob_up for consistency
-            prediction_binary = 1 if prob_up >= 0.5 else 0
+                predicted_class = None
+
+            classes = getattr(model, 'classes_', None)
+            if classes is not None and hasattr(classes, '__len__') and len(classes) == len(prediction_proba):
+                classes_list = list(classes)
+            else:
+                classes_list = None
+
+            # Log mapping context (debug)
+            try:
+                logger.info(f"🔎 classes_={classes_list} predicted_class={predicted_class} proba={list(prediction_proba)}")
+            except Exception:
+                pass
+
+            # Resolve up_index reliably
+            up_index = None
+            if classes_list is not None:
+                for i, c in enumerate(classes_list):
+                    cs = str(c).lower()
+                    if c == 1 or cs == 'up' or cs == '1' or c is True:
+                        up_index = i
+                        break
+                if up_index is None:
+                    # If numeric binary, assume larger value is 'up'
+                    try:
+                        if all(str(x).isdigit() for x in classes_list):
+                            up_index = classes_list.index(max(classes_list))
+                    except Exception:
+                        pass
+
+            if up_index is not None:
+                prob_up = float(prediction_proba[up_index])
+            else:
+                # Fallback: assume index 1 is 'up' if binary
+                prob_up = float(prediction_proba[1]) if len(prediction_proba) > 1 else float(max(prediction_proba))
+
+            # Determine binary direction using predicted_class first, then prob
+            if predicted_class is not None:
+                pcs = str(predicted_class).lower()
+                if predicted_class == 1 or pcs == 'up' or pcs == '1' or predicted_class is True:
+                    prediction_binary = 1
+                elif predicted_class == 0 or pcs == 'down' or pcs == '0' or predicted_class is False:
+                    prediction_binary = 0
+                else:
+                    prediction_binary = 1 if prob_up >= 0.5 else 0
+            else:
+                prediction_binary = 1 if prob_up >= 0.5 else 0
         except Exception as e:
             logger.error(f"❌ Error during prediction: {str(e)}")
             # Fallback to random prediction
@@ -768,9 +802,19 @@ async def make_prediction(request: PredictionRequest):
             model_name = metadata.get('model_name', 'unknown')
             logger.info(f"🔍 Model used: {model_name}, algo: {metadata.get('algorithm') if isinstance(metadata, dict) else 'unknown'}, pair: {request.trading_pair}, Probability: {probability:.3f}, Direction: {'up' if probability > 0.5 else 'down'}")
         
-        # Create prediction object
+        # Create prediction object with market-synced CURRENT market time
+        # Use timezone-aware UTC timestamp so frontend can convert reliably
+        try:
+            from timezone_utils import get_current_market_time
+            market_now = get_current_market_time()
+            # Convert market time (Asia/Bangkok) to UTC
+            timestamp_utc = market_now.astimezone(pytz.UTC)
+        except Exception:
+            # Fallback to aware UTC now
+            timestamp_utc = datetime.now(pytz.UTC)
+
         prediction_data = PredictionData(
-            timestamp=datetime.utcnow(),
+            timestamp=timestamp_utc,
             trading_pair=request.trading_pair,
             prediction=prediction_direction,  # Use 'prediction' instead of 'direction'
             model_type=metadata['algorithm'],
@@ -801,10 +845,10 @@ async def make_prediction(request: PredictionRequest):
             success=True
         )
         
-        # Return prediction response
+        # Return prediction response with the same market-synced UTC timestamp
         return PredictionResponse(
             trading_pair=request.trading_pair,
-            timestamp=datetime.utcnow(),
+            timestamp=timestamp_utc,
             prediction=prediction_direction,  
             probability=float(probability),
             confidence=float(confidence),

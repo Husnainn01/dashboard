@@ -55,6 +55,11 @@ class ContinuousDataService:
             'reconnection_attempts': 0,
             'last_collection': None
         }
+        # Failure tracking and watchdog
+        self.consecutive_failures = 0
+        # Allow tuning via env vars
+        self.watchdog_stale_secs = int(os.getenv('COLLECTION_WATCHDOG_STALE_SECS', '180'))  # 3 minutes
+        self.collection_timeout_secs = int(os.getenv('COLLECTION_TIMEOUT_SECS', '30'))
         
         # Setup logging and signal handlers
         self.setup_logging()
@@ -203,11 +208,18 @@ class ContinuousDataService:
                     return False
             
             # Collect data for all assets
-            candles = await self.collector.collect_all_assets()
+            try:
+                candles = await asyncio.wait_for(self.collector.collect_all_assets(), timeout=self.collection_timeout_secs)
+            except asyncio.TimeoutError:
+                logger.error(f"⏰ Collection timed out after {self.collection_timeout_secs}s")
+                self.stats['failed_collections'] += 1
+                self.consecutive_failures += 1
+                return False
             
             if candles:
                 self.stats['successful_collections'] += 1
                 self.stats['last_collection'] = datetime.now()
+                self.consecutive_failures = 0
                 
                 logger.info(f"✅ Collection successful: {len(candles)} candles collected")
                 
@@ -233,11 +245,13 @@ class ContinuousDataService:
                 return True
             else:
                 logger.warning("⚠️ No candles collected this cycle")
+                self.consecutive_failures += 1
                 return False
                 
         except Exception as e:
             logger.error(f"❌ Data collection error: {str(e)}")
             self.stats['failed_collections'] += 1
+            self.consecutive_failures += 1
             return False
         finally:
             self.stats['total_collections'] += 1
@@ -268,6 +282,30 @@ class ContinuousDataService:
                 # Log periodic statistics
                 if self.stats['total_collections'] % 10 == 0:  # Every 10 cycles
                     self.log_statistics()
+
+                # Watchdog: if no successful collection for too long, force reconnect
+                stale = False
+                if self.stats['last_collection'] is None:
+                    stale = True
+                else:
+                    stale_secs = (datetime.now() - self.stats['last_collection']).total_seconds()
+                    stale = stale_secs > self.watchdog_stale_secs
+
+                if stale or self.consecutive_failures >= 3:
+                    logger.warning(
+                        f"🛟 Watchdog triggered (stale={stale}, consecutive_failures={self.consecutive_failures}). Forcing reconnect..."
+                    )
+                    try:
+                        if self.collector:
+                            await self.collector.disconnect()
+                    except Exception as e:
+                        logger.warning(f"⚠️ Error during disconnect: {e}")
+                    await asyncio.sleep(1)
+                    if not await self.connect_to_pyquotex():
+                        logger.error("❌ Reconnect failed. Will retry in next cycle.")
+                    else:
+                        logger.info("✅ Reconnected successfully after watchdog trigger")
+                        self.consecutive_failures = 0
                 
                 # Calculate sleep time
                 cycle_duration = (datetime.now() - cycle_start).total_seconds()

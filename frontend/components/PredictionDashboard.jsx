@@ -116,6 +116,7 @@ const PredictionDashboard = () => {
             const predictionData = {
               direction: data.prediction, // Changed from data.direction to data.prediction
               probability: data.probability,
+              confidence: data.confidence,
               expectedChange: data.expected_change,
               modelType: data.model_used,
               timestamp: parseUtc(data.timestamp),
@@ -189,6 +190,7 @@ const PredictionDashboard = () => {
       const predictionData = {
         direction: data.prediction, // Changed from data.direction to data.prediction
         probability: data.probability,
+        confidence: data.confidence,
         expectedChange: data.expected_change,
         modelType: data.model_used,
         timestamp: parseUtc(data.timestamp),
