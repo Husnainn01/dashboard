@@ -711,8 +711,25 @@ async def make_prediction(request: PredictionRequest):
                         logger.info(f"✅ Removed {actual_features - expected_features} extra features")
             
             # Make the prediction
-            prediction_binary = model.predict(features_scaled)[0]
+            raw_pred = model.predict(features_scaled)[0]
             prediction_proba = model.predict_proba(features_scaled)[0] if hasattr(model, 'predict_proba') else [0.5, 0.5]
+            # Map probability to class label '1' (up) robustly
+            prob_up = None
+            try:
+                if hasattr(model, 'classes_') and len(getattr(model, 'classes_', [])) == len(prediction_proba):
+                    classes = list(model.classes_)
+                    if 1 in classes:
+                        up_index = classes.index(1)
+                        prob_up = float(prediction_proba[up_index])
+                # Fallback: assume index 1 is 'up' when binary
+                if prob_up is None and len(prediction_proba) == 2:
+                    prob_up = float(prediction_proba[1])
+            except Exception:
+                # Final fallback
+                prob_up = float(prediction_proba[1]) if len(prediction_proba) > 1 else 0.5
+            
+            # Derive direction from prob_up for consistency
+            prediction_binary = 1 if prob_up >= 0.5 else 0
         except Exception as e:
             logger.error(f"❌ Error during prediction: {str(e)}")
             # Fallback to random prediction
@@ -735,8 +752,8 @@ async def make_prediction(request: PredictionRequest):
         sigmoid_confidence = 1 / (1 + math.exp(-10 * (raw_confidence - 0.5)))
         confidence = min(0.95, sigmoid_confidence)  # Cap at 95% to avoid overconfidence
         
-        # Store raw probability for reference
-        probability = prediction_proba[1]  # Probability of 'up'
+        # Store probability of 'up' for reference
+        probability = float(prob_up)
         
         # Calculate expected change (simplified)
         expected_change = (probability - 0.5) * 2 * 0.001  # 0.1% base change scaled by probability

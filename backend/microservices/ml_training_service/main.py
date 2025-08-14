@@ -394,7 +394,11 @@ async def get_models_for_pair(trading_pair: str = PathParam(...)):
     
     # Get local models
     local_models = model_trainer.list_trained_models()
-    pair_models = [m for m in local_models if m["trading_pair"] == trading_pair]
+    # Some entries may not have full metadata (e.g., missing metadata.json or cloud summaries)
+    pair_models = [
+        m for m in local_models
+        if isinstance(m, dict) and m.get("trading_pair") == trading_pair
+    ]
     
     # Get cloud models
     cloud_models = []
@@ -423,9 +427,12 @@ async def train_model(request: TrainingRequest):
     # Check if we already have a model for this pair and type
     if not request.force_retrain:
         models = model_trainer.list_trained_models()
+        # Use safe access; ignore entries without required keys
         existing_models = [
-            m for m in models 
-            if m["trading_pair"] == request.trading_pair and m["algorithm"] == request.model_type
+            m for m in models
+            if isinstance(m, dict)
+            and m.get("trading_pair") == request.trading_pair
+            and m.get("algorithm") == request.model_type
         ]
         
         if existing_models:
