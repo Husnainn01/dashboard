@@ -280,99 +280,105 @@ class ContinuousDataService:
     async def collect_data_cycle(self) -> bool:
         """Execute one data collection cycle - Optimized for USD/BRL(OTC)"""
         
-        try:
-            logger.info("📊 Starting optimized data collection cycle...")
-            cycle_start = datetime.now()
-            retry_count = 0
-            
-            # Check connection
-            if not self.collector.is_connected:
-                logger.warning("⚠️ PyQuotex connection lost. Reconnecting...")
-                if not await self.connect_to_pyquotex():
-                    return False
-            
-            # Prioritize USD/BRL(OTC) collection
-            if self.is_optimized_for_usd_brl:
-                # First collect USD/BRL(OTC) data specifically
-                usd_brl_candles = await self.collect_priority_pair()
+        max_retries = self.max_retries
+        retry_count = 0
+        success = False
+        
+        # Use iterative approach instead of recursion to prevent stack overflow
+        while retry_count <= max_retries and not success:
+            try:
+                if retry_count > 0:
+                    logger.info(f"🔄 Retry attempt {retry_count}/{max_retries}...")
+                    await asyncio.sleep(5)  # Short delay before retry
+                else:
+                    logger.info("📊 Starting optimized data collection cycle...")
                 
-                if usd_brl_candles:
-                    self.stats['usd_brl_collections'] += 1
-                    logger.info(f"✅ USD/BRL(OTC) collection successful: {len(usd_brl_candles)} candles")
+                cycle_start = datetime.now()
+                
+                # Check connection
+                if not self.collector.is_connected:
+                    logger.warning("⚠️ PyQuotex connection lost. Reconnecting...")
+                    if not await self.connect_to_pyquotex():
+                        retry_count += 1
+                        self.stats['retries'] += 1
+                        continue
+                
+                # Prioritize USD/BRL(OTC) collection
+                if self.is_optimized_for_usd_brl:
+                    # First collect USD/BRL(OTC) data specifically
+                    usd_brl_candles = await self.collect_priority_pair()
                     
-                    # Perform data quality checks for USD/BRL(OTC)
-                    if self.data_quality_checks:
+                    if usd_brl_candles:
+                        self.stats['usd_brl_collections'] += 1
+                        logger.info(f"✅ USD/BRL(OTC) collection successful: {len(usd_brl_candles)} candles")
+                        
+                        # Perform data quality checks for USD/BRL(OTC)
+                        if self.data_quality_checks:
+                            for candle in usd_brl_candles:
+                                if not self.check_data_quality(candle):
+                                    self.stats['data_quality_issues'] += 1
+                                
+                        # Broadcast USD/BRL(OTC) candles via WebSocket
                         for candle in usd_brl_candles:
-                            if not self.check_data_quality(candle):
-                                self.stats['data_quality_issues'] += 1
+                            # Log candle details with enhanced information
+                            logger.info(f"  📈 {candle.trading_pair}: {candle.direction} | "
+                                      f"O:{candle.open:.5f} C:{candle.close:.5f} H:{candle.high:.5f} L:{candle.low:.5f} | "
+                                      f"Change: {candle.change:+.5f}")
                             
-                    # Broadcast USD/BRL(OTC) candles via WebSocket
-                    for candle in usd_brl_candles:
-                        # Log candle details with enhanced information
+                            # Broadcast to WebSocket clients
+                            await broadcast_market_update(candle)
+                
+                # Collect data for all configured assets (including USD/BRL if not already collected)
+                # This ensures we maintain data for all pairs while prioritizing USD/BRL
+                candles = await self.collector.collect_all_assets()
+                
+                if candles:
+                    self.stats['successful_collections'] += 1
+                    self.stats['last_collection'] = datetime.now()
+                    
+                    logger.info(f"✅ Collection successful: {len(candles)} candles collected")
+                    
+                    # Broadcast each candle via WebSocket (except USD/BRL which was already broadcast)
+                    for candle in candles:
+                        # Skip USD/BRL candles if we already processed them
+                        if self.is_optimized_for_usd_brl and candle.trading_pair == self.priority_pair:
+                            continue
+                            
+                        # Log candle details
                         logger.info(f"  📈 {candle.trading_pair}: {candle.direction} | "
-                                  f"O:{candle.open:.5f} C:{candle.close:.5f} H:{candle.high:.5f} L:{candle.low:.5f} | "
+                                  f"O:{candle.open:.5f} C:{candle.close:.5f} | "
                                   f"Change: {candle.change:+.5f}")
                         
                         # Broadcast to WebSocket clients
                         await broadcast_market_update(candle)
-            
-            # Collect data for all configured assets (including USD/BRL if not already collected)
-            # This ensures we maintain data for all pairs while prioritizing USD/BRL
-            candles = await self.collector.collect_all_assets()
-            
-            if candles:
-                self.stats['successful_collections'] += 1
-                self.stats['last_collection'] = datetime.now()
-                
-                logger.info(f"✅ Collection successful: {len(candles)} candles collected")
-                
-                # Broadcast each candle via WebSocket (except USD/BRL which was already broadcast)
-                for candle in candles:
-                    # Skip USD/BRL candles if we already processed them
-                    if self.is_optimized_for_usd_brl and candle.trading_pair == self.priority_pair:
-                        continue
-                        
-                    # Log candle details
-                    logger.info(f"  📈 {candle.trading_pair}: {candle.direction} | "
-                              f"O:{candle.open:.5f} C:{candle.close:.5f} | "
-                              f"Change: {candle.change:+.5f}")
                     
-                    # Broadcast to WebSocket clients
-                    await broadcast_market_update(candle)
+                    # Get database stats
+                    db_stats = await self.mongodb.get_stats()
+                    logger.info(f"📊 Database: {db_stats['candles']['count']} total candles")
+                    
+                    success = True
+                    break
+                else:
+                    logger.warning("⚠️ No candles collected this cycle")
+                    if self.retry_on_error:
+                        retry_count += 1
+                        self.stats['retries'] += 1
+                    else:
+                        break
+                    
+            except Exception as e:
+                logger.error(f"❌ Data collection error: {str(e)}")
+                self.stats['failed_collections'] += 1
                 
-                # Get database stats
-                db_stats = await self.mongodb.get_stats()
-                logger.info(f"📊 Database: {db_stats['candles']['count']} total candles")
-                
-                return True
-            else:
-                logger.warning("⚠️ No candles collected this cycle")
-                
-                # Retry logic for collection failures
-                if self.retry_on_error and retry_count < self.max_retries:
+                if self.retry_on_error:
                     retry_count += 1
                     self.stats['retries'] += 1
-                    logger.info(f"🔄 Retrying data collection (attempt {retry_count}/{self.max_retries})...")
-                    await asyncio.sleep(5)  # Short delay before retry
-                    return await self.collect_data_cycle()  # Recursive retry
-                
-                return False
-                
-        except Exception as e:
-            logger.error(f"❌ Data collection error: {str(e)}")
-            self.stats['failed_collections'] += 1
-            
-            # Retry logic for exceptions
-            if self.retry_on_error and retry_count < self.max_retries:
-                retry_count += 1
-                self.stats['retries'] += 1
-                logger.info(f"🔄 Retrying after error (attempt {retry_count}/{self.max_retries})...")
-                await asyncio.sleep(5)  # Short delay before retry
-                return await self.collect_data_cycle()  # Recursive retry
-                
-            return False
-        finally:
-            self.stats['total_collections'] += 1
+                else:
+                    break
+        
+        # Update total collections counter regardless of success
+        self.stats['total_collections'] += 1
+        return success
             
     async def collect_priority_pair(self) -> list:
         """Collect data specifically for the priority pair (USD/BRL)"""
@@ -459,9 +465,49 @@ class ContinuousDataService:
         if self.is_optimized_for_usd_brl and self.historical_data_days > 0:
             await self.collect_historical_data()
         
+        # Track last successful ping time
+        last_ping_time = datetime.now()
+        ping_interval = 60  # Send ping every 60 seconds
+        reconnect_threshold = 180  # Force reconnect if no successful ping for 3 minutes
+        
         try:
             while not self.should_stop:
                 cycle_start = datetime.now()
+                
+                # Check if we need to send a ping or force reconnect
+                time_since_last_ping = (datetime.now() - last_ping_time).total_seconds()
+                
+                # Send ping to keep connection alive
+                if time_since_last_ping >= ping_interval:
+                    try:
+                        logger.info("📡 Sending ping to keep connection alive...")
+                        if self.collector and self.collector.client and self.collector.is_connected:
+                            # Use a simple API call as a ping
+                            profile = await self.collector.client.get_profile()
+                            if profile:
+                                logger.info("✅ Ping successful")
+                                last_ping_time = datetime.now()
+                            else:
+                                logger.warning("⚠️ Ping returned no data")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Ping failed: {str(e)}")
+                
+                # Force reconnect if we haven't had a successful ping in a while
+                if time_since_last_ping >= reconnect_threshold:
+                    logger.warning(f"⚠️ No successful ping for {time_since_last_ping:.1f}s. Forcing reconnection...")
+                    try:
+                        # Disconnect first
+                        if self.collector and self.collector.client:
+                            await self.collector.disconnect()
+                        
+                        # Then reconnect
+                        if await self.connect_to_pyquotex():
+                            logger.info("✅ Reconnection successful")
+                            last_ping_time = datetime.now()
+                        else:
+                            logger.error("❌ Reconnection failed")
+                    except Exception as e:
+                        logger.error(f"❌ Reconnection error: {str(e)}")
                 
                 # Synchronize with market timing for more accurate data
                 # For 1-minute candles, align collection to start a few seconds after the minute
@@ -486,6 +532,10 @@ class ContinuousDataService:
                 # Execute collection cycle
                 success = await self.collect_data_cycle()
                 
+                # If collection was successful, update last ping time
+                if success:
+                    last_ping_time = datetime.now()
+                
                 # Update uptime
                 if self.stats['service_started']:
                     self.stats['uptime_seconds'] = (datetime.now() - self.stats['service_started']).total_seconds()
@@ -505,11 +555,25 @@ class ContinuousDataService:
                 if sleep_time > 0:
                     logger.info(f"⏳ Next collection in {sleep_time:.1f}s...")
                     
-                    # Sleep with periodic wake-ups to check stop signal
+                    # Sleep with periodic wake-ups to check stop signal and ping needs
                     sleep_intervals = int(sleep_time / 2) + 1  # More frequent wake-ups
                     for _ in range(sleep_intervals):
                         if self.should_stop:
                             break
+                        
+                        # Check if we need to ping during long sleep periods
+                        current_time_since_ping = (datetime.now() - last_ping_time).total_seconds()
+                        if current_time_since_ping >= ping_interval:
+                            try:
+                                logger.info("📡 Sending ping during sleep period...")
+                                if self.collector and self.collector.client and self.collector.is_connected:
+                                    profile = await self.collector.client.get_profile()
+                                    if profile:
+                                        logger.info("✅ Sleep period ping successful")
+                                        last_ping_time = datetime.now()
+                            except Exception as e:
+                                logger.warning(f"⚠️ Sleep period ping failed: {str(e)}")
+                        
                         await asyncio.sleep(min(2, sleep_time))  # Shorter sleep intervals
                         sleep_time -= 2
                         if sleep_time <= 0:
