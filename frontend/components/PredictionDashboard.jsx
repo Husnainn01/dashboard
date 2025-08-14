@@ -13,7 +13,7 @@ import {
 const PredictionDashboard = () => {
   // Configuration state
   const [selectedPair, setSelectedPair] = useState('USD/BRL(OTC)');
-  const [timezone, setTimezone] = useState('UTC');
+  const [timezone, setTimezone] = useState('Asia/Bangkok');
   const [predictionActive, setPredictionActive] = useState(false);
   
   // Prediction state
@@ -35,11 +35,20 @@ const PredictionDashboard = () => {
   
   // Timezone options
   const timezoneOptions = [
+    { value: 'Asia/Bangkok', label: 'UTC+7 (Bangkok)' },
     { value: 'UTC', label: 'UTC' },
     { value: 'America/New_York', label: 'New York (EST/EDT)' },
     { value: 'Europe/London', label: 'London (GMT/BST)' },
     { value: 'Asia/Tokyo', label: 'Tokyo (JST)' }
   ];
+
+  // Helper: parse backend timestamps as UTC if missing TZ info
+  const parseUtc = (ts) => {
+    if (!ts) return null;
+    if (ts instanceof Date) return ts; // already a Date
+    if (/(Z|[\+\-]\d{2}:?\d{2})$/.test(ts)) return new Date(ts);
+    return new Date(ts + 'Z');
+  };
 
   // Initialize on component mount
   useEffect(() => {
@@ -109,7 +118,7 @@ const PredictionDashboard = () => {
               probability: data.probability,
               expectedChange: data.expected_change,
               modelType: data.model_used,
-              timestamp: new Date(data.timestamp),
+              timestamp: parseUtc(data.timestamp),
               tradingPair: data.trading_pair
             };
             
@@ -174,7 +183,7 @@ const PredictionDashboard = () => {
         probability: data.probability,
         expectedChange: data.expected_change,
         modelType: data.model_used,
-        timestamp: new Date(data.timestamp),
+        timestamp: parseUtc(data.timestamp),
         tradingPair: selectedPair
       };
       

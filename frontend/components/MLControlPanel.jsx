@@ -25,6 +25,16 @@ const formatUptime = (seconds) => {
   }
 };
 
+// Ensure we parse backend timestamps as UTC.
+// Some services return ISO strings without timezone (no trailing 'Z').
+// This helper makes them UTC by default to prevent local-offset skew.
+const parseUtc = (ts) => {
+  if (!ts) return null;
+  // If ts already has timezone info ('Z' or '+/-'), parse directly
+  if (/(Z|[\+\-]\d{2}:?\d{2})$/.test(ts)) return new Date(ts);
+  return new Date(ts + 'Z');
+};
+
 const MLControlPanel = ({ selectedPair, onStatusChange }) => {
   // State for ML models and training
   const [models, setModels] = useState({ local_models: [], cloud_models: [] });
@@ -164,9 +174,11 @@ const MLControlPanel = ({ selectedPair, onStatusChange }) => {
       );
     }
     
-    // Find the most recent model
+    // Find the most recent model (compare in UTC)
     const latestModel = pairModels.reduce((latest, model) => {
-      if (!latest || new Date(model.created_at) > new Date(latest.created_at)) {
+      const curr = parseUtc(model.created_at);
+      const prev = latest ? parseUtc(latest.created_at) : null;
+      if (!latest || (curr && prev && curr > prev) || (curr && !prev)) {
         return model;
       }
       return latest;
@@ -174,8 +186,10 @@ const MLControlPanel = ({ selectedPair, onStatusChange }) => {
     
     if (!latestModel) return null;
     
-    // Calculate age in hours
-    const ageHours = (new Date() - new Date(latestModel.created_at)) / (1000 * 60 * 60);
+    // Calculate age in hours (use UTC now and UTC created_at)
+    const nowUtc = new Date(new Date().toISOString());
+    const createdUtc = parseUtc(latestModel.created_at);
+    const ageHours = createdUtc ? (nowUtc - createdUtc) / (1000 * 60 * 60) : 0;
     const ageText = ageHours < 1 
       ? 'Less than 1 hour ago'
       : ageHours < 24

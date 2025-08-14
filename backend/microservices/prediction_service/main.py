@@ -295,11 +295,12 @@ async def get_best_model(trading_pair: str, algorithm: str = None):
             logger.warning(f"⚠️ No trained models available for any trading pair")
             raise HTTPException(status_code=404, detail="No trained models available")
         
-        # Filter by trading pair and algorithm
+        # Filter by trading pair and algorithm (safe access)
         filtered_models = [
             m for m in models 
-            if m['trading_pair'] == trading_pair and 
-            (algorithm is None or m['algorithm'] == algorithm)
+            if isinstance(m, dict)
+            and m.get('trading_pair') == trading_pair 
+            and (algorithm is None or m.get('algorithm') == algorithm)
         ]
         
         if not filtered_models:
@@ -326,24 +327,11 @@ async def get_best_model(trading_pair: str, algorithm: str = None):
             # Try each alternative format
             for alt_format in alt_formats:
                 logger.info(f"🔍 Trying alternative format: {alt_format}")
-                filtered_models = [m for m in models if m['trading_pair'] == alt_format]
+                filtered_models = [m for m in models if isinstance(m, dict) and m.get('trading_pair') == alt_format]
                 if filtered_models:
                     logger.info(f"✅ Found models using format: {alt_format}")
                     break
-        
-        if not filtered_models:
-            # Try with a fallback model (EURUSD OTC)
-            logger.warning(f"⚠️ No models found for {trading_pair}, trying fallback model")
-            filtered_models = [m for m in models if m['trading_pair'] == "EURUSD OTC"]
-            
-            if filtered_models:
-                logger.info("✅ Using fallback model (EURUSD OTC)")
-            else:
-                # If still no models, try any available model as last resort
-                logger.warning("⚠️ No fallback model found, using any available model")
-                if models:
-                    filtered_models = [models[0]]
-        
+
         if not filtered_models:
             logger.error(f"❌ No models found for trading pair: {trading_pair}")
             raise HTTPException(
@@ -351,21 +339,21 @@ async def get_best_model(trading_pair: str, algorithm: str = None):
                 detail=f"No models found for trading pair: {trading_pair}"
             )
         
-        # Get the best model (highest accuracy)
+        # Normalize metrics and select model with highest accuracy
         # Check if models have metrics field, and add a default if not
-        for model in filtered_models:
-            if 'metrics' not in model:
-                logger.warning(f"⚠️ Model {model.get('model_name', 'unknown')} missing metrics, adding default")
-                model['metrics'] = {'accuracy': 0.5, 'precision': 0.5, 'recall': 0.5, 'f1': 0.5}
-            elif not isinstance(model['metrics'], dict):
-                logger.warning(f"⚠️ Model {model.get('model_name', 'unknown')} has invalid metrics format, fixing")
-                model['metrics'] = {'accuracy': 0.5, 'precision': 0.5, 'recall': 0.5, 'f1': 0.5}
-            elif 'accuracy' not in model['metrics']:
-                logger.warning(f"⚠️ Model {model.get('model_name', 'unknown')} missing accuracy metric, adding default")
-                model['metrics']['accuracy'] = 0.5
-                
+        for m in filtered_models:
+            if 'metrics' not in m:
+                logger.warning(f"⚠️ Model {m.get('model_name', 'unknown')} missing metrics, adding default")
+                m['metrics'] = {'accuracy': 0.5, 'precision': 0.5, 'recall': 0.5, 'f1': 0.5}
+            elif not isinstance(m['metrics'], dict):
+                logger.warning(f"⚠️ Model {m.get('model_name', 'unknown')} has invalid metrics format, fixing")
+                m['metrics'] = {'accuracy': 0.5, 'precision': 0.5, 'recall': 0.5, 'f1': 0.5}
+            elif 'accuracy' not in m['metrics']:
+                logger.warning(f"⚠️ Model {m.get('model_name', 'unknown')} missing accuracy metric, adding default")
+                m['metrics']['accuracy'] = 0.5
+
         # Select the model with highest accuracy
-        best_model = max(filtered_models, key=lambda x: x['metrics']['accuracy'])
+        best_model = max(filtered_models, key=lambda x: x.get('metrics', {}).get('accuracy', 0.5))
         model_id = best_model.get('model_id', 'unknown')
         logger.info(f"✅ Selected model: {model_id} for {trading_pair}")
         
@@ -382,6 +370,11 @@ async def get_best_model(trading_pair: str, algorithm: str = None):
                 
             # Call the async load_model method
             model, scaler, metadata = await model_trainer.load_model(model_name)
+            # Ensure metadata contains essential fields
+            if isinstance(metadata, dict):
+                metadata.setdefault('algorithm', best_model.get('algorithm'))
+                metadata.setdefault('trading_pair', best_model.get('trading_pair'))
+                metadata.setdefault('model_name', model_name)
             
             # Cache the model
             if "model_cache" not in prediction_service_state:
@@ -806,7 +799,7 @@ async def make_prediction(request: PredictionRequest):
             probability=float(probability),
             confidence=float(confidence),
             expected_change=float(expected_change),
-            model_used=metadata['algorithm']
+            model_used=(metadata.get('algorithm') if isinstance(metadata, dict) and metadata.get('algorithm') else type(model).__name__)
         )
     except HTTPException:
         # Record HTTP exception in monitoring
