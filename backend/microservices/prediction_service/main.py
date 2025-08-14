@@ -237,6 +237,18 @@ async def prepare_features_for_prediction(trading_pair: str, lookback_candles: i
             if latest_candle_time:
                 from datetime import datetime
                 import pytz
+                
+                # Ensure both datetimes are timezone-aware
+                if hasattr(latest_candle_time, 'tzinfo') and latest_candle_time.tzinfo is None:
+                    # Convert naive datetime to aware
+                    latest_candle_time = latest_candle_time.replace(tzinfo=pytz.UTC)
+                elif isinstance(latest_candle_time, str):
+                    # Parse string to datetime with UTC timezone
+                    latest_candle_time = datetime.fromisoformat(latest_candle_time.replace('Z', '+00:00'))
+                    if latest_candle_time.tzinfo is None:
+                        latest_candle_time = latest_candle_time.replace(tzinfo=pytz.UTC)
+                
+                # Now both are timezone-aware, safe to subtract
                 time_diff = datetime.now(pytz.UTC) - latest_candle_time
                 logger.info(f"⏰ Latest candle is from {time_diff.total_seconds() / 60:.1f} minutes ago")
                 if time_diff.total_seconds() > 300:  # 5 minutes
