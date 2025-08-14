@@ -220,8 +220,53 @@ class ModelTrainer:
         # Generate training report
         report = await self._generate_training_report(results, trading_pair)
         
-        logger.info("🎉 Model training completed!")
+        logger.info(" Model training completed!")
         return results
+    
+    def list_trained_models(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """List recently trained models available to the service.
+        
+        Returns a list of model metadata dictionaries if available, otherwise
+        a lightweight summary with model directory names. This is a synchronous
+        helper used by service status endpoints.
+        """
+        models: List[Dict[str, Any]] = []
+        try:
+            # Prefer local metadata for speed and simplicity
+            if self.models_dir.exists():
+                # Each model is typically stored under trained_models/<model_dir>/metadata.json
+                for model_dir in sorted(self.models_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+                    if not model_dir.is_dir():
+                        continue
+                    metadata_path = model_dir / "metadata.json"
+                    entry: Dict[str, Any] = {"name": model_dir.name}
+                    if metadata_path.exists():
+                        try:
+                            with open(metadata_path, 'r') as f:
+                                metadata = json.load(f)
+                                entry.update(metadata)
+                        except Exception as e:
+                            logger.warning(f"⚠️ Could not read metadata for {model_dir.name}: {e}")
+                    models.append(entry)
+                    if len(models) >= limit:
+                        break
+            # Optionally include cloud listing summary (best-effort)
+            if self.use_cloud_storage and hasattr(self, "storage_service") and self.storage_service:
+                try:
+                    r2_client = getattr(self.storage_service, "r2_client", None)
+                    bucket = getattr(self.storage_service, "bucket_name", os.environ.get("R2_BUCKET_NAME", "quotex"))
+                    if r2_client:
+                        resp = r2_client.list_objects_v2(Bucket=bucket, Prefix="models/")
+                        contents = resp.get("Contents", [])
+                        models.append({
+                            "cloud_objects": len(contents),
+                            "cloud_prefix": "models/"
+                        })
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not list models from cloud storage: {e}")
+        except Exception as e:
+            logger.error(f"❌ Error listing trained models: {e}")
+        return models
     
     async def _train_single_model(self, algorithm: str, X_train: np.ndarray, X_test: np.ndarray,
                                 y_train: pd.Series, y_test: pd.Series, 
