@@ -481,10 +481,7 @@ async def quick_prediction(trading_pair: str, model_type: str = None):
         logger.error(f"❌ Error in prediction endpoint for {trading_pair}: {str(e)}")
         # Try direct request to prediction service
         try:
-            config = service_config["prediction"]
-            # Use HTTPS for public domains (Railway), HTTP for localhost
-            protocol = "https" if "localhost" not in config['host'] else "http"
-            prediction_url = f"{protocol}://{config['host']}:{config['port']}/predict-by-query"
+            prediction_url = get_service_url("prediction", "/predict-by-query")
             
             async with httpx.AsyncClient() as client:
                 response = await client.get(
@@ -639,10 +636,7 @@ async def websocket_predictions(websocket: WebSocket):
                     
                     # Fetch and send latest prediction
                     try:
-                        config = service_config["prediction"]
-                        # Use HTTPS for public domains (Railway), HTTP for localhost
-                        protocol = "https" if "localhost" not in config['host'] else "http"
-                        prediction_url = f"{protocol}://{config['host']}:{config['port']}/predict-by-query"
+                        prediction_url = get_service_url("prediction", "/predict-by-query")
                         logger.info(f"📡 Fetching initial prediction from: {prediction_url}?trading_pair={trading_pair}")
                         
                         try:
@@ -949,10 +943,7 @@ async def poll_predictions():
                             logger.info(f"🔍 Polling prediction for {trading_pair} for candle at {current_candle_time.isoformat()}")
                             
                             # Get prediction from prediction service
-                            config = service_config["prediction"]
-                            # Use HTTPS for public domains (Railway), HTTP for localhost
-                            protocol = "https" if "localhost" not in config['host'] else "http"
-                            prediction_url = f"{protocol}://{config['host']}:{config['port']}/predict-by-query"
+                            prediction_url = get_service_url("prediction", "/predict-by-query")
                             logger.info(f"🔍 Polling prediction from: {prediction_url}?trading_pair={trading_pair}")
                             
                             try:
