@@ -331,7 +331,7 @@ async def forward_request(request_or_service: Union[Request, str], service_name_
         logger.info(f"📬 Response headers: {dict(response.headers)}")
         
         # Get the response content
-        content = await response.content()
+        content = await response.aread()
         content_preview = content[:100].decode('utf-8', errors='replace') if content else "<empty>"
         logger.info(f"📬 Response content preview: {content_preview}...")
         
