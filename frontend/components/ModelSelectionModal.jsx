@@ -44,8 +44,32 @@ const ModelSelectionModal = ({
   
   // Format accuracy for display
   const formatAccuracy = (accuracy) => {
-    if (typeof accuracy !== 'number') return 'N/A';
-    return `${(accuracy * 100).toFixed(1)}%`;
+    console.log('Raw accuracy value:', accuracy, typeof accuracy);
+    
+    // Handle different accuracy formats
+    if (accuracy === null || accuracy === undefined) return 'N/A';
+    
+    // If accuracy is already a percentage (> 1)
+    if (typeof accuracy === 'number' && accuracy > 1) {
+      return `${accuracy.toFixed(1)}%`;
+    }
+    
+    // If accuracy is a decimal (between 0 and 1)
+    if (typeof accuracy === 'number') {
+      return `${(accuracy * 100).toFixed(1)}%`;
+    }
+    
+    // If accuracy is a string that can be converted to a number
+    if (typeof accuracy === 'string') {
+      const numericValue = parseFloat(accuracy);
+      if (!isNaN(numericValue)) {
+        return numericValue > 1 
+          ? `${numericValue.toFixed(1)}%` 
+          : `${(numericValue * 100).toFixed(1)}%`;
+      }
+    }
+    
+    return 'N/A';
   };
   
   if (!isOpen) return null;

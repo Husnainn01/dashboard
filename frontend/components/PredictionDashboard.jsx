@@ -269,11 +269,18 @@ const PredictionDashboard = () => {
       // Process local models
       if (modelsData.local_models && Array.isArray(modelsData.local_models)) {
         modelsData.local_models.forEach(model => {
+          console.log(`🔍 Local model raw data:`, model);
+          console.log(`🔢 Local model accuracy sources:`, {
+            directAccuracy: model.accuracy,
+            metricsAccuracy: model.metrics?.accuracy,
+            rawModel: JSON.stringify(model)
+          });
+          
           formattedModels.push({
             id: model.model_id || model.model_name,
             name: model.model_name || model.model_id,
             algorithm: model.algorithm || 'unknown',
-            accuracy: model.metrics?.accuracy || 0,
+            accuracy: model.accuracy || model.metrics?.accuracy || 0,
             created_at: model.created_at || 'Unknown',
             location: 'local'
           });
@@ -284,14 +291,22 @@ const PredictionDashboard = () => {
       // Process cloud models
       if (modelsData.cloud_models && Array.isArray(modelsData.cloud_models)) {
         modelsData.cloud_models.forEach(model => {
+          console.log(`🔍 Cloud model raw data:`, model);
+          console.log(`🔢 Cloud model accuracy sources:`, {
+            directAccuracy: model.accuracy,
+            metricsAccuracy: model.metrics?.accuracy,
+            rawModel: JSON.stringify(model)
+          });
+          
           formattedModels.push({
             id: model.model_id || model.model_name,
             name: model.model_name || model.model_id,
             algorithm: model.algorithm || 'unknown',
-            accuracy: model.metrics?.accuracy || 0,
+            accuracy: model.accuracy || model.metrics?.accuracy || 0,
             created_at: model.created_at || 'Unknown',
             location: 'cloud'
           });
+          console.log(`Model ${model.model_id || model.model_name} accuracy:`, model.accuracy || model.metrics?.accuracy || 0);
         });
         console.log(`📊 Processed ${modelsData.cloud_models.length} cloud models`);
       }
