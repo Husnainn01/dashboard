@@ -546,8 +546,8 @@ class ModelTrainer:
             logger.error(f"❌ Error checking model existence: {str(e)}")
             return False
     
-    async def load_model(self, model_name: str) -> Dict:
-        """Load a trained model with its metadata"""
+    async def load_model(self, model_name: str) -> Tuple[Any, Any, Dict]:
+        """Load a trained model with its scaler and metadata"""
         try:
             if self.use_cloud_storage:
                 # Load from cloud storage
@@ -557,68 +557,113 @@ class ModelTrainer:
                     
                     if not result:
                         logger.error(f"❌ Model not found in cloud storage: {model_name}")
-                        return None
+                        return None, None, {}
                         
                     model_data, metadata = result
                     
+                    # Extract model and scaler from model_data
+                    model = model_data.get('model')
+                    scaler = model_data.get('scaler')
+                    
+                    # Ensure metadata is a dictionary
+                    if metadata is None:
+                        logger.warning(f"⚠️ Model {model_name} has no metadata, creating default metadata")
+                        metadata = {
+                            'model_name': model_name,
+                            'algorithm': 'unknown',
+                            'trading_pair': 'unknown',
+                            'loaded_at': datetime.utcnow().isoformat(),
+                            'metrics': {'accuracy': 0.5}
+                        }
+                    elif not isinstance(metadata, dict):
+                        logger.warning(f"⚠️ Model {model_name} has invalid metadata format, converting to dict")
+                        metadata = {
+                            'model_name': model_name,
+                            'algorithm': 'unknown',
+                            'trading_pair': 'unknown',
+                            'loaded_at': datetime.utcnow().isoformat(),
+                            'metrics': {'accuracy': 0.5}
+                        }
+                    
+                    # Ensure essential fields exist
+                    metadata.setdefault('model_name', model_name)
+                    metadata.setdefault('loaded_at', datetime.utcnow().isoformat())
+                    metadata.setdefault('metrics', {'accuracy': 0.5})
+                    
                     logger.info(f"☁️ Model loaded from cloud storage: {model_name}")
                     
-                    return {
-                        'model': model_data['model'],
-                        'scaler': model_data['scaler'],
-                        'metadata': metadata
-                    }
+                    return model, scaler, metadata
                     
                 except Exception as e:
                     logger.error(f"❌ Error loading model from cloud storage {model_name}: {str(e)}")
-                    return None
+                    # Don't return None, continue to try local storage
+            
+            # Legacy local storage path or fallback from cloud storage error
+            model_dir = self.models_dir / model_name
+            
+            if not model_dir.exists():
+                logger.error(f"❌ Model directory not found: {model_dir}")
+                return None, None, {}
+            
+            # Load model
+            model_path = model_dir / "model.pkl"
+            if not model_path.exists():
+                logger.error(f"❌ Model file not found: {model_path}")
+                return None, None, {}
+                
+            model = joblib.load(model_path)
+            
+            # Load scaler
+            scaler_path = model_dir / "scaler.pkl"
+            if not scaler_path.exists():
+                logger.warning(f"⚠️ Scaler file not found: {scaler_path}")
+                scaler = None
             else:
-                # Legacy local storage path
-                model_dir = self.models_dir / model_name
-                
-                if not model_dir.exists():
-                    logger.error(f"❌ Model directory not found: {model_dir}")
-                    return None
-                
-                # Load model
-                model_path = model_dir / "model.pkl"
-                if not model_path.exists():
-                    logger.error(f"❌ Model file not found: {model_path}")
-                    return None
-                    
-                model = joblib.load(model_path)
-                
-                # Load scaler
-                scaler_path = model_dir / "scaler.pkl"
-                if not scaler_path.exists():
-                    logger.warning(f"⚠️ Scaler file not found: {scaler_path}")
-                    scaler = None
-                else:
-                    scaler = joblib.load(scaler_path)
-                
-                # Load metadata
-                metadata_path = model_dir / "metadata.json"
-                if not metadata_path.exists():
-                    logger.warning(f"⚠️ Metadata file not found: {metadata_path}")
-                    metadata = {
-                        'model_name': model_name,
-                        'loaded_at': datetime.utcnow().isoformat()
-                    }
-                else:
+                scaler = joblib.load(scaler_path)
+            
+            # Load metadata
+            metadata_path = model_dir / "metadata.json"
+            if not metadata_path.exists():
+                logger.warning(f"⚠️ Metadata file not found: {metadata_path}, creating default")
+                metadata = {
+                    'model_name': model_name,
+                    'algorithm': model_name.split('_')[0] if '_' in model_name else 'unknown',
+                    'trading_pair': model_name.split('_')[1] if '_' in model_name and len(model_name.split('_')) > 1 else 'unknown',
+                    'loaded_at': datetime.utcnow().isoformat(),
+                    'metrics': {'accuracy': 0.5}
+                }
+            else:
+                try:
                     with open(metadata_path, 'r') as f:
                         metadata = json.load(f)
-                
-                logger.info(f"📁 Model loaded from local storage: {model_name}")
-                
-                return {
-                    'model': model,
-                    'scaler': scaler,
-                    'metadata': metadata
-                }
+                    # Ensure metadata is properly formatted
+                    if not isinstance(metadata, dict):
+                        logger.warning(f"⚠️ Metadata format invalid, creating default")
+                        metadata = {
+                            'model_name': model_name,
+                            'loaded_at': datetime.utcnow().isoformat(),
+                            'metrics': {'accuracy': 0.5}
+                        }
+                except Exception as e:
+                    logger.error(f"❌ Error reading metadata file: {str(e)}")
+                    metadata = {
+                        'model_name': model_name,
+                        'loaded_at': datetime.utcnow().isoformat(),
+                        'metrics': {'accuracy': 0.5}
+                    }
+            
+            # Ensure essential fields exist
+            metadata.setdefault('model_name', model_name)
+            metadata.setdefault('loaded_at', datetime.utcnow().isoformat())
+            metadata.setdefault('metrics', {'accuracy': 0.5})
+            
+            logger.info(f"📁 Model loaded from local storage: {model_name}")
+            
+            return model, scaler, metadata
                 
         except Exception as e:
             logger.error(f"❌ Error loading model {model_name}: {str(e)}")
-            return None
+            return None, None, {}
     
     async def hyperparameter_tuning(self, algorithm: str, trading_pair: str = "EURUSD OTC",
                                   data_limit: int = 2000) -> Dict:

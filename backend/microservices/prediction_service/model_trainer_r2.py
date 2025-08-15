@@ -63,6 +63,31 @@ class ModelTrainerR2(BaseModelTrainer):
                 # Use model_storage_manager to load model (async)
                 model, scaler, metadata = await self.model_storage_manager.load_model_by_id(model_id)
                 logger.info(f"✅ Loaded model {model_id} from storage")
+                
+                # Ensure metadata is a dictionary
+                if metadata is None:
+                    logger.warning(f"⚠️ Model {model_id} has no metadata, creating default metadata")
+                    metadata = {
+                        'model_name': model_id,
+                        'algorithm': 'unknown',
+                        'trading_pair': 'unknown',
+                        'loaded_at': datetime.utcnow().isoformat(),
+                        'metrics': {'accuracy': 0.5}
+                    }
+                elif not isinstance(metadata, dict):
+                    logger.warning(f"⚠️ Model {model_id} has invalid metadata format, converting to dict")
+                    metadata = {
+                        'model_name': model_id,
+                        'algorithm': 'unknown',
+                        'trading_pair': 'unknown',
+                        'loaded_at': datetime.utcnow().isoformat(),
+                        'metrics': {'accuracy': 0.5}
+                    }
+                
+                # Ensure essential fields exist
+                metadata.setdefault('model_name', model_id)
+                metadata.setdefault('loaded_at', datetime.utcnow().isoformat())
+                
                 return model, scaler, metadata
             except Exception as e:
                 logger.error(f"❌ Error loading model from storage: {str(e)}")

@@ -294,7 +294,7 @@ async def get_best_model(trading_pair: str, algorithm: str = None):
         
         if not filtered_models:
             # Try without algorithm filter
-            filtered_models = [m for m in models if m['trading_pair'] == trading_pair]
+            filtered_models = [m for m in models if isinstance(m, dict) and m.get('trading_pair') == trading_pair]
         
         # Try with different formats of the trading pair
         if not filtered_models:
@@ -397,23 +397,36 @@ async def get_best_model(trading_pair: str, algorithm: str = None):
                 
             # Call the async load_model method
             model, scaler, metadata = await model_trainer.load_model(model_name)
+            
+            # Check if model loading failed
+            if model is None:
+                logger.error(f"❌ Failed to load model {model_name}")
+                raise HTTPException(status_code=500, detail=f"Failed to load model: {model_name}")
+            
+            # Ensure metadata is a dictionary
+            if metadata is None:
+                logger.warning(f"⚠️ Model {model_name} has no metadata, creating default")
+                metadata = {}
+            
             # Ensure metadata contains essential fields
-            if isinstance(metadata, dict):
-                metadata.setdefault('algorithm', best_model.get('algorithm'))
-                metadata.setdefault('trading_pair', best_model.get('trading_pair'))
-                metadata.setdefault('model_name', model_name)
+            metadata.setdefault('algorithm', best_model.get('algorithm'))
+            metadata.setdefault('trading_pair', best_model.get('trading_pair'))
+            metadata.setdefault('model_name', model_name)
+            metadata.setdefault('metrics', {'accuracy': best_model.get('metrics', {}).get('accuracy', 0.5)})
             
             # Log model details for debugging
             logger.info(f"📊 Using model {model_name} for {trading_pair}")
-            if isinstance(metadata, dict) and 'metrics' in metadata:
+            if 'metrics' in metadata:
                 logger.info(f"📊 Model metrics: {metadata['metrics']}")
             
             # Log when the model was trained (if available)
-            if isinstance(metadata, dict) and 'trained_at' in metadata:
+            if 'trained_at' in metadata:
                 logger.info(f"📊 Model trained at: {metadata['trained_at']}")
-            elif isinstance(best_model, dict) and 'created_at' in best_model:
+            elif 'created_at' in best_model:
                 logger.info(f"📊 Model created at: {best_model['created_at']}")
-            elif isinstance(best_model, dict) and 'timestamp' in best_model:
+                # Add to metadata for future reference
+                metadata.setdefault('trained_at', best_model['created_at'])
+            elif 'timestamp' in best_model:
                 logger.info(f"📊 Model timestamp: {best_model['timestamp']}")
             else:
                 logger.info(f"📊 Model timestamp not available")
@@ -424,6 +437,8 @@ async def get_best_model(trading_pair: str, algorithm: str = None):
             logger.info(f"✅ Successfully loaded fresh model for {trading_pair}")
             
             return model, scaler, metadata
+        except HTTPException:
+            raise
         except Exception as e:
             model_id = best_model.get('model_id', best_model.get('model_name', 'unknown'))
             logger.error(f"❌ Failed to load model {model_id}: {str(e)}")
@@ -518,10 +533,16 @@ async def make_prediction(request: PredictionRequest):
                 model, scaler, metadata = await model_trainer.load_model(request.model_name)
                 logger.info(f"✅ Successfully loaded requested model: {request.model_name}")
                 
-                # Ensure metadata fields exist
-                if isinstance(metadata, dict):
-                    metadata.setdefault('model_name', request.model_name)
-                    metadata.setdefault('trading_pair', request.trading_pair)
+                # Ensure metadata is a dictionary and contains essential fields
+                if metadata is None:
+                    logger.warning(f"⚠️ Model {request.model_name} has no metadata, creating default")
+                    metadata = {}
+                    
+                # Add essential fields to metadata
+                metadata.setdefault('model_name', request.model_name)
+                metadata.setdefault('trading_pair', request.trading_pair)
+                metadata.setdefault('algorithm', getattr(request, 'model_type', 'unknown'))
+                metadata.setdefault('metrics', {'accuracy': 0.5})
                     
                 # Store this successful model selection for future use
                 model_selections[request.trading_pair] = {'model_name': request.model_name, 'model_type': None}
@@ -802,12 +823,20 @@ async def make_prediction(request: PredictionRequest):
             # Fallback to aware UTC now
             timestamp_utc = datetime.now(pytz.UTC)
 
+        # Ensure metadata has required fields before creating PredictionData
+        if metadata is None:
+            metadata = {}
+        
+        # Use safe access for metadata fields with fallbacks
+        algorithm = metadata.get('algorithm', 'unknown')
+        model_version = metadata.get('version', '1.0.0')
+        
         prediction_data = PredictionData(
             timestamp=timestamp_utc,
             trading_pair=request.trading_pair,
-            prediction=prediction_direction,  # Use 'prediction' instead of 'direction'
-            model_type=metadata['algorithm'],
-            model_version=metadata.get('version', '1.0.0'),
+            prediction=prediction_direction,
+            model_type=algorithm,
+            model_version=model_version,
             confidence=float(confidence),
             features={"probability": float(probability), "expected_change": float(expected_change)}
         )
@@ -835,6 +864,17 @@ async def make_prediction(request: PredictionRequest):
         )
         
         # Return prediction response with the same market-synced UTC timestamp
+        # Determine model name with proper fallbacks
+        model_name = None
+        if isinstance(metadata, dict):
+            model_name = metadata.get('algorithm')
+        
+        if not model_name and model is not None:
+            model_name = type(model).__name__
+        
+        if not model_name:
+            model_name = "unknown"
+            
         return PredictionResponse(
             trading_pair=request.trading_pair,
             timestamp=timestamp_utc,
@@ -842,7 +882,7 @@ async def make_prediction(request: PredictionRequest):
             probability=float(probability),
             confidence=float(confidence),
             expected_change=float(expected_change),
-            model_used=(metadata.get('algorithm') if isinstance(metadata, dict) and metadata.get('algorithm') else type(model).__name__)
+            model_used=model_name
         )
     except HTTPException:
         # Record HTTP exception in monitoring
