@@ -513,15 +513,37 @@ async def make_prediction(request: PredictionRequest):
         # Load explicit model if provided, otherwise get best model
         if getattr(request, 'model_name', None):
             logger.info(f"🎛️ Explicit model selection: {request.model_name}")
-            model, scaler, metadata = await model_trainer.load_model(request.model_name)
-            # Ensure metadata fields exist
-            if isinstance(metadata, dict):
-                metadata.setdefault('model_name', request.model_name)
-                metadata.setdefault('trading_pair', request.trading_pair)
+            try:
+                # First try to load the exact model by name
+                model, scaler, metadata = await model_trainer.load_model(request.model_name)
+                logger.info(f"✅ Successfully loaded requested model: {request.model_name}")
+                
+                # Ensure metadata fields exist
+                if isinstance(metadata, dict):
+                    metadata.setdefault('model_name', request.model_name)
+                    metadata.setdefault('trading_pair', request.trading_pair)
+                    
+                # Store this successful model selection for future use
+                model_selections[request.trading_pair] = {'model_name': request.model_name, 'model_type': None}
+            except Exception as e:
+                logger.error(f"❌ Failed to load requested model {request.model_name}: {str(e)}")
+                logger.info(f"⚠️ Falling back to best available model for {request.trading_pair}")
+                # Fall back to best model
+                model, scaler, metadata = await get_best_model(
+                    request.trading_pair, request.model_type
+                )
+        elif getattr(request, 'model_type', None):
+            logger.info(f"🎛️ Explicit model type selection: {request.model_type}")
+            # Get the best model of the specified type
+            model, scaler, metadata = await get_best_model(
+                request.trading_pair, request.model_type
+            )
+            # Store this model type selection for future use
+            model_selections[request.trading_pair] = {'model_name': None, 'model_type': request.model_type}
         else:
             # Get the best model
             model, scaler, metadata = await get_best_model(
-                request.trading_pair, request.model_type
+                request.trading_pair, None
             )
         
         # Prepare features
@@ -987,6 +1009,11 @@ async def websocket_predictions(websocket: WebSocket):
                     
                     logger.info(f"✅ Client subscribed to predictions for {trading_pair} with model_name={model_name}, model_type={model_type}")
                     
+                    # Store this model selection for future predictions
+                    if model_name or model_type:
+                        model_selections[trading_pair] = {'model_name': model_name, 'model_type': model_type}
+                        logger.info(f"💾 Stored model selection for {trading_pair}: {model_name or model_type}")
+                    
                     # Send latest prediction if available
                     await send_latest_prediction(websocket, trading_pair, model_name, model_type)
                 else:
@@ -1121,6 +1148,9 @@ async def run_continuous_predictions():
     # Track the last candle timestamp we made a prediction for (in market timezone)
     last_candle_timestamps = {}
     
+    # Track model selections per trading pair
+    model_selections = {}  # Format: {trading_pair: {'model_name': name, 'model_type': type}}
+    
     # Define the candle timeframe in minutes
     timeframe_minutes = 1
     # Buffer time to wait after candle close to ensure data is available (seconds)
@@ -1199,7 +1229,41 @@ async def run_continuous_predictions():
                             
                             # Define a wrapper function for prediction manager
                             async def make_prediction_wrapper(trading_pair):
-                                request = PredictionRequest(trading_pair=trading_pair)
+                                # Check if there are any active subscriptions for this trading pair
+                                # that specify a particular model to use
+                                model_name = None
+                                model_type = None
+                                
+                                # First check if we have a stored model selection for this pair
+                                if trading_pair in model_selections:
+                                    stored_selection = model_selections[trading_pair]
+                                    model_name = stored_selection.get('model_name')
+                                    model_type = stored_selection.get('model_type')
+                                    logger.info(f"📌 Using stored model selection: {model_name or model_type} for {trading_pair}")
+                                
+                                # Then check active subscriptions which may override the stored selection
+                                for ws, subscriptions in manager.subscriptions.items():
+                                    for sub in subscriptions:
+                                        if isinstance(sub, dict) and sub.get("trading_pair") == trading_pair:
+                                            # If we find a subscription with a specific model, use that
+                                            if sub.get("model_name"):
+                                                model_name = sub.get("model_name")
+                                                logger.info(f"🎯 Using specifically requested model: {model_name} for {trading_pair}")
+                                                # Store this selection for future predictions
+                                                model_selections[trading_pair] = {'model_name': model_name, 'model_type': None}
+                                                break
+                                            elif sub.get("model_type") and not model_name:  # model_name takes precedence
+                                                model_type = sub.get("model_type")
+                                                logger.info(f"🎯 Using specifically requested model type: {model_type} for {trading_pair}")
+                                                # Store this selection for future predictions
+                                                model_selections[trading_pair] = {'model_name': None, 'model_type': model_type}
+                                
+                                # Create request with model selection if specified
+                                request = PredictionRequest(
+                                    trading_pair=trading_pair,
+                                    model_name=model_name,
+                                    model_type=model_type
+                                )
                                 return await make_prediction(request)
                             
                             # Set different timeout for priority pairs
