@@ -443,22 +443,34 @@ class ModelStorageService:
         models = []
         
         try:
+            logger.info(f"🔍 Listing R2 models with filters - trading_pair: {trading_pair}, algorithm: {algorithm}")
+            
             # List all metadata files
+            logger.info(f"📋 Listing objects in bucket: {self.bucket_name} with prefix: models/")
             response = self.r2_client.list_objects_v2(
                 Bucket=self.bucket_name,
                 Prefix="models/",
                 Delimiter="/"
             )
             
+            # Log the response structure
+            logger.info(f"📊 R2 list response keys: {list(response.keys())}")
+            common_prefixes_count = len(response.get('CommonPrefixes', []))
+            logger.info(f"📊 Found {common_prefixes_count} common prefixes (model directories)")
+            
             # Process common prefixes (directories)
             for prefix in response.get('CommonPrefixes', []):
                 model_prefix = prefix.get('Prefix')
                 if not model_prefix:
+                    logger.warning("⚠️ Found empty prefix in R2 response")
                     continue
+                
+                logger.info(f"📁 Processing model directory: {model_prefix}")
                 
                 # Get metadata file
                 metadata_key = f"{model_prefix}metadata.json"
                 try:
+                    logger.info(f"📄 Fetching metadata file: {metadata_key}")
                     metadata_obj = self.r2_client.get_object(
                         Bucket=self.bucket_name,
                         Key=metadata_key
@@ -466,18 +478,26 @@ class ModelStorageService:
                     metadata_bytes = metadata_obj['Body'].read()
                     metadata = json.loads(metadata_bytes.decode('utf-8'))
                     
+                    # Log metadata keys for debugging
+                    logger.info(f"📋 Metadata keys: {list(metadata.keys())}")
+                    logger.info(f"📋 Model trading_pair: {metadata.get('trading_pair')}, algorithm: {metadata.get('algorithm')}")
+                    
                     # Apply filters
                     if trading_pair and metadata.get("trading_pair") != trading_pair:
+                        logger.info(f"🔍 Filtering out model: trading_pair mismatch - requested: {trading_pair}, found: {metadata.get('trading_pair')}")
                         continue
                     if algorithm and metadata.get("algorithm") != algorithm:
+                        logger.info(f"🔍 Filtering out model: algorithm mismatch - requested: {algorithm}, found: {metadata.get('algorithm')}")
                         continue
                         
+                    logger.info(f"✅ Adding model to results: {metadata.get('model_id')}")
                     models.append(metadata)
                 except Exception as e:
                     logger.warning(f"⚠️ Error loading metadata from {metadata_key}: {str(e)}")
             
             # Sort by saved_at (newest first)
             models.sort(key=lambda x: x.get("saved_at", ""), reverse=True)
+            logger.info(f"📊 Returning {len(models)} models after filtering")
             return models
             
         except Exception as e:

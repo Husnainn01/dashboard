@@ -162,8 +162,28 @@ export const getModelsInfo = async () => {
  * @param {string} tradingPair - Trading pair to get models for
  * @returns {Promise<Object>} Models information
  */
-export const getModelsForPair = async (tradingPair = 'USD/BRL(OTC)') => {
-  return await apiRequest(`/ml/models/${encodeURIComponent(tradingPair)}`);
+export const getModelsForPair = async (tradingPair) => {
+  try {
+    console.log(`🔍 Fetching models for pair: ${tradingPair}`);
+    console.log(`🔗 API URL: ${API_BASE_URL}/ml/models/${encodeURIComponent(tradingPair)}`);
+    
+    const response = await fetch(`${API_BASE_URL}/ml/models/${encodeURIComponent(tradingPair)}`);
+    console.log(`📊 Response status: ${response.status}`);
+    
+    if (!response.ok) {
+      console.error(`❌ Error response: ${response.status} ${response.statusText}`);
+      throw new Error(`Error fetching models: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log('✅ Models fetched successfully:', data);
+    console.log(`📊 Found ${data.local_count} local models and ${data.cloud_count} cloud models`);
+    
+    return data;
+  } catch (error) {
+    console.error('❌ Error fetching models:', error);
+    return { local_models: [], cloud_models: [] };
+  }
 };
 
 /**

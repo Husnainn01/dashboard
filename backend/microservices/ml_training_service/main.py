@@ -389,32 +389,61 @@ async def get_models_for_pair(trading_pair: str = PathParam(...)):
     """Get trained models for a specific trading pair"""
     global model_trainer, model_storage_manager
     
+    logger.info(f"🔍 Received request for models with trading_pair: '{trading_pair}'")
+    
     if not model_trainer:
+        logger.error("❌ ML service not initialized")
         raise HTTPException(status_code=503, detail="ML service not initialized")
     
     # Get local models
+    logger.info("📂 Fetching local models")
     local_models = model_trainer.list_trained_models()
+    logger.info(f"📊 Found {len(local_models)} total local models before filtering")
+    
     # Some entries may not have full metadata (e.g., missing metadata.json or cloud summaries)
     pair_models = [
         m for m in local_models
         if isinstance(m, dict) and m.get("trading_pair") == trading_pair
     ]
+    logger.info(f"📊 Found {len(pair_models)} local models matching trading_pair: '{trading_pair}'")
+    
+    # Log the trading pairs found in local models for debugging
+    unique_pairs = set()
+    for m in local_models:
+        if isinstance(m, dict) and "trading_pair" in m:
+            unique_pairs.add(m.get("trading_pair"))
+    logger.info(f"📊 Unique trading pairs in local models: {unique_pairs}")
     
     # Get cloud models
     cloud_models = []
     if model_storage_manager:
         try:
+            logger.info(f"☁️ Fetching cloud models for trading_pair: '{trading_pair}'")
             cloud_models = await model_storage_manager.list_models(trading_pair=trading_pair)
+            logger.info(f"📊 Found {len(cloud_models)} cloud models matching trading_pair: '{trading_pair}'")
+            
+            # Log cloud model details for debugging
+            if cloud_models:
+                for i, model in enumerate(cloud_models):
+                    logger.info(f"☁️ Cloud model {i+1}: id={model.get('model_id')}, pair={model.get('trading_pair')}, algorithm={model.get('algorithm')}")
+            else:
+                logger.warning(f"⚠️ No cloud models found for trading_pair: '{trading_pair}'")
+                
         except Exception as e:
             logger.error(f"❌ Error listing models from cloud storage: {str(e)}")
+    else:
+        logger.warning("⚠️ model_storage_manager not initialized, skipping cloud models")
     
-    return {
+    response = {
         "trading_pair": trading_pair,
         "local_models": pair_models,
         "cloud_models": cloud_models,
         "local_count": len(pair_models),
         "cloud_count": len(cloud_models)
     }
+    
+    logger.info(f"✅ Returning response with {len(pair_models)} local models and {len(cloud_models)} cloud models")
+    return response
 
 @app.post("/train", response_model=TrainingResponse)
 async def train_model(request: TrainingRequest):

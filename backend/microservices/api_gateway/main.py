@@ -61,7 +61,7 @@ service_config = {
     },
     "ml_training": {
         # Using the public domain provided for ML training service
-        "host": os.getenv("ML_SERVICE_HOST", "ml-traning-service-production.up.railway.app"),
+        "host": os.getenv("ML_SERVICE_HOST", "ml-training-service-production.up.railway.app"),
         "port": int(os.getenv("ML_SERVICE_PORT", "5002"))
     },
     "prediction": {
@@ -271,38 +271,56 @@ async def check_service_health(service_name: str):
         
         return False
 
-async def forward_request(service_name: str, path: str, method: str = "GET", data: dict = None):
+async def forward_request(request: Request, service_name: str, path: str = ""):
     """Forward a request to a microservice"""
     global http_client
     
-    # Check if service is healthy
-    if not await check_service_health(service_name):
-        logger.warning(f"⚠️ {service_name} service health check failed, attempting request anyway")
+    # Log request details
+    logger.info(f"📬 Forward request - Method: {request.method}, Service: {service_name}, Path: '{path}'")
+    logger.info(f"📬 Request headers: {dict(request.headers)}")
     
-    url = get_service_url(service_name, path)
-    logger.info(f"🔄 Forwarding {method} request to {url}")
-    
+    # Get the target URL
     try:
-        if method == "GET":
-            response = await http_client.get(url, timeout=10.0)
-        elif method == "POST":
-            response = await http_client.post(url, json=data, timeout=10.0)
-        else:
-            raise ValueError(f"Unsupported method: {method}")
+        target_url = get_service_url(service_name, path)
+        logger.info(f"📬 Target URL constructed: {target_url}")
         
-        # Check if response is successful
-        if response.status_code >= 200 and response.status_code < 300:
-            try:
-                return response.json()
-            except json.JSONDecodeError:
-                logger.error(f"❌ Invalid JSON response from {service_name}: {response.text}")
-                raise HTTPException(status_code=502, detail=f"Invalid response from {service_name} service")
-        else:
-            logger.error(f"❌ Error response from {service_name}: {response.status_code} - {response.text}")
-            raise HTTPException(status_code=response.status_code, detail=response.text)
-    except httpx.HTTPStatusError as e:
-        logger.error(f"❌ HTTP error forwarding request to {service_name}: {str(e)}")
-        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+        # Log service configuration
+        config = service_config.get(service_name)
+        logger.info(f"📬 Service config for {service_name}: host={config['host']}, port={config['port']}")
+    except ValueError as e:
+        logger.error(f"❌ Error constructing URL: {str(e)}")
+        raise HTTPException(status_code=404, detail=str(e))
+    
+    # Get the request body
+    body = await request.body()
+    body_preview = body[:100].decode('utf-8', errors='replace') if body else "<empty>"
+    logger.info(f"📬 Request body preview: {body_preview}...")
+    
+    # Forward the request
+    try:
+        logger.info(f"📬 Forwarding {request.method} request to {target_url}")
+        response = await http_client.request(
+            method=request.method,
+            url=target_url,
+            headers=request.headers,
+            content=body,
+        )
+        
+        # Log response details
+        logger.info(f"📬 Received response from {target_url} - Status: {response.status_code}")
+        logger.info(f"📬 Response headers: {dict(response.headers)}")
+        
+        # Get the response content
+        content = await response.content()
+        content_preview = content[:100].decode('utf-8', errors='replace') if content else "<empty>"
+        logger.info(f"📬 Response content preview: {content_preview}...")
+        
+        # Return the response
+        return Response(
+            content=content,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+        )
     except httpx.RequestError as e:
         logger.error(f"❌ Request error forwarding to {service_name}: {str(e)}")
         raise HTTPException(status_code=503, detail=f"Error communicating with {service_name} service: {str(e)}")

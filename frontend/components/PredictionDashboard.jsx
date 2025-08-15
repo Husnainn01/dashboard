@@ -256,11 +256,14 @@ const PredictionDashboard = () => {
   
   // Fetch available models for the selected trading pair
   const fetchAvailableModels = async () => {
+    console.log(`🔄 Starting to fetch models for pair: ${selectedPair}`);
+    setIsLoadingModels(true);
     try {
-      setIsLoadingModels(true);
+      console.log(`📡 Calling API to get models for pair: ${selectedPair}`);
       const modelsData = await getModelsForPair(selectedPair);
+      console.log(`📊 Raw models data received:`, modelsData);
       
-      // Format models for display
+      // Create formatted models array
       const formattedModels = [];
       
       // Process local models
@@ -275,6 +278,7 @@ const PredictionDashboard = () => {
             location: 'local'
           });
         });
+        console.log(`📊 Processed ${modelsData.local_models.length} local models`);
       }
       
       // Process cloud models
@@ -289,6 +293,15 @@ const PredictionDashboard = () => {
             location: 'cloud'
           });
         });
+        console.log(`📊 Processed ${modelsData.cloud_models.length} cloud models`);
+      }
+      
+      console.log(`✅ Total models available: ${formattedModels.length}`);
+      
+      if (formattedModels.length === 0) {
+        console.warn(`⚠️ No models found for pair: ${selectedPair}`);
+      } else {
+        console.log(`📋 Models available:`, formattedModels.map(m => ({ id: m.id, algorithm: m.algorithm })));
       }
       
       // Sort by creation date (newest first)
