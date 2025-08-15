@@ -384,7 +384,7 @@ async def get_models():
         "cloud_count": len(cloud_models)
     }
 
-@app.get("/models/{trading_pair}")
+@app.get("/models/{trading_pair:path}")
 async def get_models_for_pair(trading_pair: str = PathParam(...)):
     """Get trained models for a specific trading pair"""
     global model_trainer, model_storage_manager

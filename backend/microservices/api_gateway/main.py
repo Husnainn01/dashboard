@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Requ
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 
 # Add parent directories to path
 current_dir = Path(__file__).parent
@@ -271,13 +271,33 @@ async def check_service_health(service_name: str):
         
         return False
 
-async def forward_request(request: Request, service_name: str, path: str = ""):
-    """Forward a request to a microservice"""
+async def forward_request(request_or_service: Union[Request, str], service_name_or_path: str, path: str = "", method: str = None):
+    """Forward a request to a microservice
+    
+    Can be called in two ways:
+    1. forward_request(request, service_name, path) - Forward a request object
+    2. forward_request(service_name, path, method="GET") - Create and forward a new request
+    """
     global http_client
     
+    # Handle both calling patterns
+    if isinstance(request_or_service, Request):
+        # Called with (request, service_name, path)
+        request = request_or_service
+        service_name = service_name_or_path
+        request_method = request.method
+        request_headers = request.headers
+        request_body = await request.body()
+    else:
+        # Called with (service_name, path, method)
+        service_name = request_or_service
+        path = service_name_or_path
+        request_method = method or "GET"
+        request_headers = {}
+        request_body = b""
+    
     # Log request details
-    logger.info(f"📬 Forward request - Method: {request.method}, Service: {service_name}, Path: '{path}'")
-    logger.info(f"📬 Request headers: {dict(request.headers)}")
+    logger.info(f"📬 Forward request - Method: {request_method}, Service: {service_name}, Path: '{path}'")
     
     # Get the target URL
     try:
@@ -291,19 +311,19 @@ async def forward_request(request: Request, service_name: str, path: str = ""):
         logger.error(f"❌ Error constructing URL: {str(e)}")
         raise HTTPException(status_code=404, detail=str(e))
     
-    # Get the request body
-    body = await request.body()
-    body_preview = body[:100].decode('utf-8', errors='replace') if body else "<empty>"
-    logger.info(f"📬 Request body preview: {body_preview}...")
+    # Log request body preview if available
+    if request_body:
+        body_preview = request_body[:100].decode('utf-8', errors='replace')
+        logger.info(f"📬 Request body preview: {body_preview}...")
     
     # Forward the request
     try:
-        logger.info(f"📬 Forwarding {request.method} request to {target_url}")
+        logger.info(f"📬 Forwarding {request_method} request to {target_url}")
         response = await http_client.request(
-            method=request.method,
+            method=request_method,
             url=target_url,
-            headers=request.headers,
-            content=body,
+            headers=request_headers,
+            content=request_body,
         )
         
         # Log response details
@@ -323,10 +343,12 @@ async def forward_request(request: Request, service_name: str, path: str = ""):
         )
     except httpx.RequestError as e:
         logger.error(f"❌ Request error forwarding to {service_name}: {str(e)}")
+        logger.error(f"❌ Exception type: {type(e).__name__}")
         raise HTTPException(status_code=503, detail=f"Error communicating with {service_name} service: {str(e)}")
     except Exception as e:
-        logger.error(f"❌ Error forwarding request to {service_name}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error communicating with {service_name} service: {str(e)}")
+        logger.error(f"❌ Error forwarding request to {target_url}: {str(e)}")
+        logger.error(f"❌ Exception type: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail=f"Error forwarding request: {str(e)}")
 
 # API routes
 @app.get("/")
@@ -407,9 +429,10 @@ async def get_models():
     """Get list of trained models"""
     return await forward_request("ml_training", "/models")
 
-@app.get("/ml/models/{trading_pair}")
+@app.get("/ml/models/{trading_pair:path}")
 async def get_models_for_pair(trading_pair: str):
     """Get trained models for a specific trading pair"""
+    logger.info(f"🔍 Received request for models with trading_pair: '{trading_pair}'")
     return await forward_request(
         "ml_training", 
         f"/models/{trading_pair}"
