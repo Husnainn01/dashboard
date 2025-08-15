@@ -117,6 +117,7 @@ class PredictionData:
                 model_version: str,
                 prediction: str,  # "up" or "down"
                 confidence: float,
+                model_name: str = None,
                 features: Dict[str, float] = None,
                 actual_result: str = None,
                 was_correct: bool = None):
@@ -126,6 +127,7 @@ class PredictionData:
         self.model_version = model_version
         self.prediction = prediction
         self.confidence = confidence
+        self.model_name = model_name
         self.features = features or {}
         self.actual_result = actual_result
         self.was_correct = was_correct
@@ -139,6 +141,7 @@ class PredictionData:
             "model_version": self.model_version,
             "prediction": self.prediction,
             "confidence": self.confidence,
+            "model_name": self.model_name,
             "features": self.features,
             "actual_result": self.actual_result,
             "was_correct": self.was_correct
@@ -154,6 +157,7 @@ class PredictionData:
             model_version=data.get("model_version"),
             prediction=data.get("prediction"),
             confidence=data.get("confidence"),
+            model_name=data.get("model_name"),
             features=data.get("features", {}),
             actual_result=data.get("actual_result"),
             was_correct=data.get("was_correct")
@@ -352,6 +356,7 @@ class MongoDBManager:
                             trading_pair: str, 
                             limit: int = 100, 
                             model_type: str = None,
+                            model_name: str = None,
                             start_time: datetime = None, 
                             end_time: datetime = None) -> List[Dict[str, Any]]:
         """
@@ -375,6 +380,9 @@ class MongoDBManager:
         
         if model_type:
             query["model_type"] = model_type
+            
+        if model_name:
+            query["model_name"] = model_name
         
         if start_time:
             query["timestamp"] = {"$gte": start_time}
@@ -396,6 +404,45 @@ class MongoDBManager:
             prediction["_id"] = str(prediction["_id"])
         
         return predictions
+        
+    async def get_latest_prediction(self, 
+                                trading_pair: str,
+                                model_name: str = None,
+                                model_type: str = None) -> Optional[PredictionData]:
+        """
+        Get the latest prediction for a trading pair with optional model selection
+        
+        Args:
+            trading_pair: Trading pair to get prediction for
+            model_name: Filter by model name (optional)
+            model_type: Filter by model type (optional)
+            
+        Returns:
+            Latest PredictionData object or None if not found
+        """
+        if not self.is_connected:
+            await self.connect()
+        
+        # Build query
+        query = {"trading_pair": trading_pair}
+        
+        if model_type:
+            query["model_type"] = model_type
+            
+        if model_name:
+            query["model_name"] = model_name
+        
+        # Execute query to get the latest prediction
+        cursor = self.db.predictions.find(query).sort("timestamp", DESCENDING).limit(1)
+        predictions = await cursor.to_list(length=1)
+        
+        if predictions and len(predictions) > 0:
+            # Convert ObjectId to string
+            predictions[0]["_id"] = str(predictions[0]["_id"])
+            # Convert to PredictionData object
+            return PredictionData.from_dict(predictions[0])
+        else:
+            return None
     
     async def get_candles_for_training(self, 
                                      trading_pair: str, 

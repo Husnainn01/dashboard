@@ -65,14 +65,13 @@ app.add_middleware(
 # WebSocket connection manager
 class ConnectionManager:
     def __init__(self):
-        self.active_connections = []
-        self.subscriptions = {}
+        self.active_connections: List[WebSocket] = []
+        self.subscriptions: Dict[WebSocket, List[Dict[str, str]]] = {}
     
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
         self.subscriptions[websocket] = []
-        logger.info(f"📡 WebSocket client connected. Active connections: {len(self.active_connections)}")
     
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
@@ -536,132 +535,6 @@ async def make_prediction(request: PredictionRequest):
         try:
             # Get feature names from the model if available
             model_features = None
-            if hasattr(model, 'feature_names_in_'):
-                model_features = model.feature_names_in_
-            elif hasattr(model, 'get_booster') and hasattr(model.get_booster(), 'feature_names'):
-                model_features = model.get_booster().feature_names
-            
-            # If we have model features, ensure our features match
-            if model_features is not None:
-                logger.info(f"🔍 Aligning features with model's expected features")
-                
-                # Get current feature names
-                current_features = features.columns.tolist()
-                
-                # Check for missing features
-                missing_features = [f for f in model_features if f not in current_features]
-                if missing_features:
-                    logger.warning(f"⚠️ Missing features in prediction data: {missing_features}")
-                    # Add missing features with zeros (more efficiently)
-                    missing_df = pd.DataFrame(0.0, index=features.index, columns=missing_features)
-                    features = pd.concat([features, missing_df], axis=1)
-                
-                # Check for extra features
-                extra_features = [f for f in current_features if f not in model_features]
-                if extra_features:
-                    logger.warning(f"⚠️ Extra features in prediction data: {extra_features}")
-                    # Remove extra features
-                    features = features.drop(columns=extra_features)
-                
-                # Ensure feature order matches
-                features = features[model_features]
-        except Exception as e:
-            logger.warning(f"⚠️ Could not align features: {str(e)}")
-        
-        # Scale features if scaler is available
-        if scaler is not None:
-            try:
-                # Log detailed information about features and scaler
-                feature_count = features.shape[1]
-                logger.info(f"🔍 Scaling features with scaler: {feature_count} features in data")
-                
-                # Log scaler attributes for debugging
-                if hasattr(scaler, 'n_features_in_'):
-                    logger.info(f"🔍 Scaler expects {scaler.n_features_in_} features")
-                if hasattr(scaler, 'mean_'):
-                    logger.info(f"🔍 Scaler mean shape: {scaler.mean_.shape}")
-                if hasattr(scaler, 'scale_'):
-                    logger.info(f"🔍 Scaler scale shape: {scaler.scale_.shape}")
-                
-                # Check if scaler dimensions match feature dimensions
-                if hasattr(scaler, 'n_features_in_') and scaler.n_features_in_ != feature_count:
-                    logger.warning(f"⚠️ Feature count mismatch: scaler expects {scaler.n_features_in_} features but got {feature_count}")
-                    # Adjust scaler dimensions to match features
-                    logger.info(f"🔧 Adjusting scaler dimensions to match feature count")
-                    scaler.mean_ = np.zeros(feature_count)
-                    scaler.scale_ = np.ones(feature_count)
-                    scaler.var_ = np.ones(feature_count)
-                    scaler.n_features_in_ = feature_count
-                    if hasattr(scaler, 'n_samples_seen_'):
-                        logger.info(f"🔧 Preserving n_samples_seen_: {scaler.n_samples_seen_}")
-                    else:
-                        logger.info(f"🔧 Adding n_samples_seen_ attribute")
-                        scaler.n_samples_seen_ = 100
-                
-                # Try to transform features
-                features_scaled = scaler.transform(features)
-                logger.info(f"✅ Features scaled successfully")
-                
-            except Exception as e:
-                logger.warning(f"⚠️ Error using scaler: {str(e)}")
-                
-                try:
-                    # If the scaler is not fitted or has other issues, create a new one
-                    logger.info(f"🔧 Creating new StandardScaler as fallback")
-                    from sklearn.preprocessing import StandardScaler
-                    
-                    # Create a new scaler
-                    scaler = StandardScaler()
-                    
-                    # Fit with current features
-                    logger.info(f"🔧 Fitting new scaler with current features ({features.shape})")
-                    
-                    try:
-                        # Fit the scaler and transform features
-                        scaler.fit(features)
-                        features_scaled = scaler.transform(features)
-                        
-                        # Log detailed information about the new scaler
-                        logger.info(f"✅ Features scaled successfully with new scaler")
-                        logger.info(f"🔍 New scaler attributes: n_features_in_={scaler.n_features_in_}, " +
-                                  f"n_samples_seen_={getattr(scaler, 'n_samples_seen_', 'N/A')}")
-                        logger.info(f"🔍 New scaler mean shape: {scaler.mean_.shape}, scale shape: {scaler.scale_.shape}")
-                    except Exception as inner_e:
-                        # If scaling fails, try with a fallback approach
-                        logger.warning(f"⚠️ Primary scaling failed: {str(inner_e)}, trying fallback")
-                        
-                        try:
-                            # Create a new scaler with the same parameters
-                            fallback_scaler = StandardScaler()
-                            
-                            # Ensure we're working with numpy array
-                            feature_values = features.values if hasattr(features, 'values') else features
-                            
-                            # Fit on the features
-                            fallback_scaler.fit(feature_values)
-                            
-                            # Scale the features
-                            features_scaled = fallback_scaler.transform(feature_values)
-                            
-                            logger.info(f"🔍 Fallback scaler succeeded")
-                        except Exception as fallback_e:
-                            # If all scaling attempts fail, use unscaled features
-                            logger.error(f"❌ All scaling attempts failed: {str(fallback_e)}")
-                            logger.warning(f"⚠️ Using unscaled features as last resort")
-                            features_scaled = features.values if hasattr(features, 'values') else features
-                except Exception as outer_e:
-                    # If everything fails, use unscaled features
-                    logger.error(f"❌ Complete scaling failure: {str(outer_e)}")
-                    logger.warning(f"⚠️ Using unscaled features as last resort")
-                    features_scaled = features.values if hasattr(features, 'values') else features
-        else:
-            logger.warning(f"⚠️ No scaler available, using unscaled features")
-            features_scaled = features.values
-        
-        # Make prediction
-        try:
-            # Check for feature shape mismatch and ensure exact feature alignment
-            model_features = None
             
             # First, try to get feature names from the model
             if hasattr(model, 'feature_names_in_'):
@@ -673,40 +546,42 @@ async def make_prediction(request: PredictionRequest):
                 logger.info(f"🔍 Model expects {len(model_features)} features")
                 
                 # If we have a DataFrame, we can align features by name
-                if isinstance(features_scaled, pd.DataFrame):
-                    current_features = features_scaled.columns.tolist()
+                if isinstance(features, pd.DataFrame):
+                    current_features = features.columns.tolist()
                     logger.info(f"🔍 Current features: {len(current_features)}")
                     
                     # Find missing features
                     missing_features = [f for f in model_features if f not in current_features]
                     if missing_features:
-                        logger.warning(f"⚠️ Adding {len(missing_features)} missing features: {missing_features}")
-                        for feature in missing_features:
-                            features_scaled[feature] = 0.0
+                        logger.warning(f"⚠️ Missing features in prediction data: {missing_features}")
+                        # Add missing features with zeros (more efficiently)
+                        missing_df = pd.DataFrame(0.0, index=features.index, columns=missing_features)
+                        features = pd.concat([features, missing_df], axis=1)
                     
                     # Find extra features
                     extra_features = [f for f in current_features if f not in model_features]
                     if extra_features:
-                        logger.warning(f"⚠️ Removing {len(extra_features)} extra features: {extra_features}")
-                        features_scaled = features_scaled.drop(columns=extra_features)
+                        logger.warning(f"⚠️ Extra features in prediction data: {extra_features}")
+                        # Remove extra features
+                        features = features.drop(columns=extra_features)
                     
                     # Reorder columns to match model's expected order
-                    features_scaled = features_scaled[model_features]
+                    features = features[model_features]
                     
-                    logger.info(f"✅ Features aligned successfully: {features_scaled.shape}")
+                    logger.info(f"✅ Features aligned successfully: {features.shape}")
                 # If we have a numpy array, we need to ensure the shape matches
                 else:
                     expected_features = len(model_features)
-                    actual_features = features_scaled.shape[1]
+                    actual_features = features.shape[1]
                     
                     if expected_features != actual_features:
                         logger.warning(f"⚠️ Feature shape mismatch, expected: {expected_features}, got {actual_features}")
                         
                         # Add missing features with zeros
                         if expected_features > actual_features:
-                            missing_shape = (features_scaled.shape[0], expected_features - actual_features)
+                            missing_shape = (features.shape[0], expected_features - actual_features)
                             missing_features = np.zeros(missing_shape)
-                            features_scaled = np.hstack((features_scaled, missing_features))
+                            features = np.hstack((features, missing_features))
                             logger.info(f"✅ Added {expected_features - actual_features} missing features")
                             
                             # Log detailed information about the feature mismatch
@@ -718,29 +593,29 @@ async def make_prediction(request: PredictionRequest):
                         
                         # If we have too many features, truncate
                         elif expected_features < actual_features:
-                            features_scaled = features_scaled[:, :expected_features]
+                            features = features[:, :expected_features]
                             logger.info(f"✅ Removed {actual_features - expected_features} extra features")
             # Fallback to simple shape checking if feature names are not available
             elif hasattr(model, 'n_features_in_'):
                 expected_features = model.n_features_in_
-                actual_features = features_scaled.shape[1]
+                actual_features = features.shape[1]
                 
                 if expected_features != actual_features:
                     logger.warning(f"⚠️ Feature shape mismatch, expected: {expected_features}, got {actual_features}")
                     
                     # Add missing features with zeros
                     if expected_features > actual_features:
-                        if isinstance(features_scaled, pd.DataFrame):
+                        if isinstance(features, pd.DataFrame):
                             # For DataFrame, add columns
                             missing_count = expected_features - actual_features
                             for i in range(missing_count):
                                 col_name = f"missing_feature_{i}"
-                                features_scaled[col_name] = 0.0
+                                features[col_name] = 0.0
                         else:
                             # For numpy array, add columns with zeros
-                            missing_shape = (features_scaled.shape[0], expected_features - actual_features)
+                            missing_shape = (features.shape[0], expected_features - actual_features)
                             missing_features = np.zeros(missing_shape)
-                            features_scaled = np.hstack((features_scaled, missing_features))
+                            features = np.hstack((features, missing_features))
                         
                         logger.info(f"✅ Added {expected_features - actual_features} missing features")
                         
@@ -754,10 +629,10 @@ async def make_prediction(request: PredictionRequest):
                     
                     # If we have too many features, truncate
                     elif expected_features < actual_features:
-                        if isinstance(features_scaled, pd.DataFrame):
-                            features_scaled = features_scaled.iloc[:, :expected_features]
+                        if isinstance(features, pd.DataFrame):
+                            features = features.iloc[:, :expected_features]
                         else:
-                            features_scaled = features_scaled[:, :expected_features]
+                            features = features[:, :expected_features]
                         
                         logger.info(f"✅ Removed {actual_features - expected_features} extra features")
             
@@ -765,14 +640,14 @@ async def make_prediction(request: PredictionRequest):
             predicted_class = None
             
             # Log feature values to help debug
-            if isinstance(features_scaled, pd.DataFrame):
-                logger.info(f"🔍 Feature sample for prediction: {features_scaled.iloc[0].head(5).to_dict()}")
+            if isinstance(features, pd.DataFrame):
+                logger.info(f"🔍 Feature sample for prediction: {features.iloc[0].head(5).to_dict()}")
             else:
-                logger.info(f"🔍 Feature shape for prediction: {features_scaled.shape}")
+                logger.info(f"🔍 Feature shape for prediction: {features.shape}")
             
             # Get prediction probabilities
             try:
-                prediction_proba = model.predict_proba(features_scaled)[0] if hasattr(model, 'predict_proba') else [0.5, 0.5]
+                prediction_proba = model.predict_proba(features)[0] if hasattr(model, 'predict_proba') else [0.5, 0.5]
                 logger.info(f"🔍 Raw prediction probabilities: {prediction_proba}")
             except Exception as e:
                 logger.error(f"❌ Error getting prediction probabilities: {str(e)}")
@@ -780,7 +655,7 @@ async def make_prediction(request: PredictionRequest):
             
             # Get predicted class
             try:
-                predicted_class = model.predict(features_scaled)[0]
+                predicted_class = model.predict(features)[0]
                 logger.info(f"🔍 Raw predicted class: {predicted_class}")
             except Exception as e:
                 logger.error(f"❌ Error getting predicted class: {str(e)}")
@@ -1085,15 +960,35 @@ async def websocket_predictions(websocket: WebSocket):
             
             if message.get("action") == "subscribe":
                 trading_pair = message.get("trading_pair")
-                logger.info(f"📡 WebSocket subscription request for: {trading_pair}")
+                model_name = message.get("model_name")
+                model_type = message.get("model_type")
+                
+                logger.info(f"📡 WebSocket subscription request for: {trading_pair} with model_name={model_name}, model_type={model_type}")
                 
                 if trading_pair and websocket in manager.subscriptions:
-                    if trading_pair not in manager.subscriptions[websocket]:
-                        manager.subscriptions[websocket].append(trading_pair)
-                    logger.info(f"✅ Client subscribed to predictions for {trading_pair}")
+                    # Create subscription with model info
+                    subscription = {
+                        "trading_pair": trading_pair,
+                        "model_name": model_name,
+                        "model_type": model_type
+                    }
+                    
+                    # Check if this exact subscription already exists
+                    subscription_exists = False
+                    for sub in manager.subscriptions[websocket]:
+                        if (sub.get("trading_pair") == trading_pair and 
+                            sub.get("model_name") == model_name and 
+                            sub.get("model_type") == model_type):
+                            subscription_exists = True
+                            break
+                    
+                    if not subscription_exists:
+                        manager.subscriptions[websocket].append(subscription)
+                    
+                    logger.info(f"✅ Client subscribed to predictions for {trading_pair} with model_name={model_name}, model_type={model_type}")
                     
                     # Send latest prediction if available
-                    await send_latest_prediction(websocket, trading_pair)
+                    await send_latest_prediction(websocket, trading_pair, model_name, model_type)
                 else:
                     logger.warning(f"⚠️ Failed to subscribe to predictions for {trading_pair}")
                     
@@ -1104,33 +999,29 @@ async def websocket_predictions(websocket: WebSocket):
     finally:
         manager.disconnect(websocket)
 
-async def get_latest_prediction(trading_pair: str) -> Optional[PredictionData]:
-    """Get the latest prediction for a trading pair from MongoDB"""
+async def get_latest_prediction(trading_pair: str, model_name=None, model_type=None):
+    """Get the latest prediction for a trading pair with optional model selection"""
     global mongodb_manager
     
     try:
-        # Get the latest prediction from MongoDB
-        predictions = await mongodb_manager.get_predictions(
-            trading_pair=trading_pair,
-            limit=1
+        # Get latest prediction from MongoDB with model filters
+        latest_prediction = await mongodb_manager.get_latest_prediction(
+            trading_pair, 
+            model_name=model_name, 
+            model_type=model_type
         )
-        
-        if predictions and len(predictions) > 0:
-            # Convert to PredictionData object
-            return PredictionData.from_dict(predictions[0])
-        else:
-            return None
+        return latest_prediction
     except Exception as e:
         logger.error(f"❌ Error getting latest prediction: {str(e)}")
         return None
 
-async def send_latest_prediction(websocket: WebSocket, trading_pair: str):
-    """Send the latest prediction for a trading pair"""
+async def send_latest_prediction(websocket: WebSocket, trading_pair: str, model_name=None, model_type=None):
+    """Send the latest prediction for a trading pair with optional model selection"""
     global mongodb_manager
     
     try:
-        # Get latest prediction
-        latest_prediction = await get_latest_prediction(trading_pair)
+        # Get latest prediction with model selection
+        latest_prediction = await get_latest_prediction(trading_pair, model_name, model_type)
         
         if latest_prediction:
             # Get probability and expected_change from features if available
@@ -1158,33 +1049,59 @@ async def send_latest_prediction(websocket: WebSocket, trading_pair: str):
     except Exception as e:
         logger.error(f"❌ Error sending latest prediction: {str(e)}")
 
-async def broadcast_prediction(prediction: PredictionData):
+async def broadcast_prediction(prediction_data: PredictionData):
     """Broadcast a prediction to all subscribed clients"""
-    try:
-        # Get probability and expected_change from features if available
-        probability = 0.5
-        expected_change = 0.0
-        if hasattr(prediction, 'features') and prediction.features:
-            probability = prediction.features.get("probability", 0.5)
-            expected_change = prediction.features.get("expected_change", 0.0)
-        
-        prediction_data = {
-            "type": "prediction",
-            "trading_pair": prediction.trading_pair,
-            "timestamp": prediction.timestamp.isoformat(),
-            "prediction": prediction.prediction,  # Use 'prediction' instead of 'direction'
-            "probability": probability,
-            "confidence": prediction.confidence,
-            "expected_change": expected_change,
-            "model_used": prediction.model_type
-        }
-        
-        # Send to subscribed clients
-        await manager.broadcast(prediction_data, prediction.trading_pair)
-        
-        logger.info(f"📡 Broadcasted prediction for {prediction.trading_pair}")
-    except Exception as e:
-        logger.error(f"❌ Error broadcasting prediction: {str(e)}")
+    trading_pair = prediction_data.trading_pair
+    model_type = prediction_data.model_type
+    
+    # Get probability and expected_change from features if available
+    probability = 0.5
+    expected_change = 0.0
+    if hasattr(prediction_data, 'features') and prediction_data.features:
+        probability = prediction_data.features.get("probability", 0.5)
+        expected_change = prediction_data.features.get("expected_change", 0.0)
+    
+    # Create message
+    message = {
+        "type": "prediction",
+        "trading_pair": trading_pair,
+        "timestamp": prediction_data.timestamp.isoformat(),
+        "prediction": prediction_data.prediction,  # Use 'prediction' instead of 'direction'
+        "probability": probability,
+        "confidence": prediction_data.confidence,
+        "expected_change": expected_change,
+        "model_used": model_type
+    }
+    
+    # Send to all clients subscribed to this trading pair and model
+    for websocket, subscriptions in manager.subscriptions.items():
+        for subscription in subscriptions:
+            # Check if this is a dict-based subscription (new format)
+            if isinstance(subscription, dict):
+                sub_pair = subscription.get("trading_pair")
+                sub_model_name = subscription.get("model_name")
+                sub_model_type = subscription.get("model_type")
+                
+                # Match trading pair and optionally model name/type if specified
+                if sub_pair == trading_pair:
+                    # If client specified a model name or type, only send if it matches
+                    if (sub_model_name and hasattr(prediction_data, 'model_name') and 
+                        prediction_data.model_name != sub_model_name):
+                        continue
+                    if (sub_model_type and model_type and 
+                        model_type != sub_model_type):
+                        continue
+                    
+                    try:
+                        await manager.send_personal_message(message, websocket)
+                    except Exception as e:
+                        logger.error(f"❌ WebSocket broadcast error: {e}")
+            # Handle legacy string-based subscriptions
+            elif subscription == trading_pair:
+                try:
+                    await manager.send_personal_message(message, websocket)
+                except Exception as e:
+                    logger.error(f"❌ WebSocket broadcast error: {e}")
 
 async def run_continuous_predictions():
     """Run continuous prediction generation with proper timezone handling"""

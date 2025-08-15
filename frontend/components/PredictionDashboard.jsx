@@ -2,12 +2,14 @@ import { useState, useEffect, useRef } from 'react';
 import ConfigurationPanel from './ConfigurationPanel';
 import PredictionCard from './PredictionCard';
 import ConnectionStatus from './ConnectionStatus';
+import ModelSelectionModal from './ModelSelectionModal';
 import { 
   getHealthStatus, 
   createPredictionWebSocket, 
   getLatestPrediction,
   startPredictionService,
-  stopPredictionService
+  stopPredictionService,
+  getModelsForPair
 } from '../services/api';
 
 const PredictionDashboard = () => {
@@ -15,6 +17,12 @@ const PredictionDashboard = () => {
   const [selectedPair, setSelectedPair] = useState('USD/BRL(OTC)');
   const [timezone, setTimezone] = useState('Asia/Bangkok');
   const [predictionActive, setPredictionActive] = useState(false);
+  
+  // Model selection state
+  const [showModelSelection, setShowModelSelection] = useState(false);
+  const [availableModels, setAvailableModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState(null);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
   
   // Prediction state
   const [prediction, setPrediction] = useState(null);
@@ -162,35 +170,40 @@ const PredictionDashboard = () => {
   };
 
   const subscribeToPredictions = () => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    
-    // Subscribe to ML predictions for the selected pair
-    wsRef.current.send(JSON.stringify({
-      action: 'subscribe',
-      trading_pair: selectedPair
-    }));
-    
-    console.log(`🤖 Subscribed to ML predictions for ${selectedPair}`);
-    
-    // Also fetch latest prediction via REST API
-    fetchLatestPrediction();
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      const subscribeMsg = {
+        action: 'subscribe',
+        trading_pair: selectedPair,
+        // Include selected model information if available
+        model_name: selectedModel?.name,
+        model_type: selectedModel?.algorithm
+      };
+      wsRef.current.send(JSON.stringify(subscribeMsg));
+      console.log(`🔔 Subscribed to predictions for ${selectedPair} using model ${selectedModel?.name || 'default'}`);
+    } else {
+      console.warn('WebSocket not connected, cannot subscribe');
+    }
   };
 
   const fetchLatestPrediction = async () => {
     try {
-      // Read manual model selection from localStorage (set in MLControlPanel)
-      let modelName = null;
-      try {
-        const mapJson = localStorage.getItem('selected_model_name_per_pair');
-        const map = mapJson ? JSON.parse(mapJson) : {};
-        modelName = map[selectedPair] || null;
-      } catch (_) {}
-
-      const data = await getLatestPrediction(selectedPair, modelName);
-      console.log('🤖 ML Prediction via API:', data);
+      // Pass selected model information to get the latest prediction
+      const data = await getLatestPrediction(
+        selectedPair, 
+        selectedModel?.algorithm, 
+        selectedModel?.name
+      );
       
+      if (!data || !data.prediction) {
+        console.log('No prediction available yet');
+        return;
+      }
+      
+      console.log('📊 Latest prediction:', data);
+      
+      // Format the prediction data
       const predictionData = {
-        direction: data.prediction, // Changed from data.direction to data.prediction
+        direction: data.prediction,
         probability: data.probability,
         confidence: data.confidence,
         expectedChange: data.expected_change,
@@ -231,11 +244,102 @@ const PredictionDashboard = () => {
   };
 
   const togglePrediction = () => {
-    setPredictionActive(!predictionActive);
+    if (!predictionActive) {
+      // When starting predictions, first show model selection modal
+      fetchAvailableModels();
+      setShowModelSelection(true);
+    } else {
+      // When stopping predictions, just stop
+      setPredictionActive(false);
+    }
+  };
+  
+  // Fetch available models for the selected trading pair
+  const fetchAvailableModels = async () => {
+    try {
+      setIsLoadingModels(true);
+      const modelsData = await getModelsForPair(selectedPair);
+      
+      // Format models for display
+      const formattedModels = [];
+      
+      // Process local models
+      if (modelsData.local_models && Array.isArray(modelsData.local_models)) {
+        modelsData.local_models.forEach(model => {
+          formattedModels.push({
+            id: model.model_id || model.model_name,
+            name: model.model_name || model.model_id,
+            algorithm: model.algorithm || 'unknown',
+            accuracy: model.metrics?.accuracy || 0,
+            created_at: model.created_at || 'Unknown',
+            location: 'local'
+          });
+        });
+      }
+      
+      // Process cloud models
+      if (modelsData.cloud_models && Array.isArray(modelsData.cloud_models)) {
+        modelsData.cloud_models.forEach(model => {
+          formattedModels.push({
+            id: model.model_id || model.model_name,
+            name: model.model_name || model.model_id,
+            algorithm: model.algorithm || 'unknown',
+            accuracy: model.metrics?.accuracy || 0,
+            created_at: model.created_at || 'Unknown',
+            location: 'cloud'
+          });
+        });
+      }
+      
+      // Sort by creation date (newest first)
+      formattedModels.sort((a, b) => {
+        const dateA = new Date(a.created_at);
+        const dateB = new Date(b.created_at);
+        return dateB - dateA;
+      });
+      
+      setAvailableModels(formattedModels);
+      
+      // Pre-select the newest model if any exist
+      if (formattedModels.length > 0) {
+        setSelectedModel(formattedModels[0]);
+      }
+    } catch (error) {
+      console.error('Failed to fetch models:', error);
+    } finally {
+      setIsLoadingModels(false);
+    }
+  };
+  
+  // Handle model selection confirmation
+  const handleModelSelectionConfirm = () => {
+    setShowModelSelection(false);
+    if (selectedModel) {
+      console.log(`Selected model: ${selectedModel.name} (${selectedModel.algorithm})`);
+      setPredictionActive(true);
+    }
+  };
+  
+  // Handle model selection cancellation
+  const handleModelSelectionCancel = () => {
+    setShowModelSelection(false);
+    setSelectedModel(null);
   };
 
   return (
     <div className="dashboard-container">
+      {/* Model Selection Modal */}
+      {showModelSelection && (
+        <ModelSelectionModal
+          isOpen={showModelSelection}
+          models={availableModels}
+          selectedModel={selectedModel}
+          onSelectModel={setSelectedModel}
+          onConfirm={handleModelSelectionConfirm}
+          onCancel={handleModelSelectionCancel}
+          isLoading={isLoadingModels}
+        />
+      )}
       {/* Header */}
       <header className="header">
         <div className="header-title">
