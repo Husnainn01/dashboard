@@ -61,6 +61,12 @@ class ContinuousDataService:
         self.watchdog_stale_secs = int(os.getenv('COLLECTION_WATCHDOG_STALE_SECS', '180'))  # 3 minutes
         self.collection_timeout_secs = int(os.getenv('COLLECTION_TIMEOUT_SECS', '30'))
         
+        # Websocket health monitoring
+        self.last_successful_ping = datetime.now()
+        self.max_ping_interval = int(os.getenv('MAX_PING_INTERVAL_SECS', '300'))  # 5 minutes
+        self.force_reconnect_interval = int(os.getenv('FORCE_RECONNECT_INTERVAL_SECS', '3600'))  # 1 hour
+        self.last_forced_reconnect = datetime.now()
+        
         # Setup logging and signal handlers
         self.setup_logging()
         self.setup_signal_handlers()
@@ -154,178 +160,205 @@ class ContinuousDataService:
             try:
                 logger.info(f"🔌 Connecting to PyQuotex (attempt {attempt + 1}/{self.max_reconnect_attempts})...")
                 
-                if await self.collector.connect():
-                    logger.info("✅ Connected to PyQuotex successfully")
-                    self.stats['reconnection_attempts'] = 0
+                # Disconnect first if already connected to ensure clean state
+                if hasattr(self.collector, 'client') and self.collector.client:
+                    try:
+                        await self.collector.disconnect()
+                        logger.info("🔌 Disconnected existing connection before reconnecting")
+                        await asyncio.sleep(2)  # Brief pause before reconnecting
+                    except Exception as disconnect_err:
+                        logger.warning(f"⚠️ Error during disconnect: {str(disconnect_err)}")
+                
+                # Connect to PyQuotex
+                connected = await self.collector.connect()
+                
+                if connected:
+                    logger.info("✅ Successfully connected to PyQuotex!")
+                    self.last_successful_ping = datetime.now()  # Reset ping timer
+                    self.last_forced_reconnect = datetime.now()  # Reset forced reconnect timer
                     
-                    # Check which pairs are actually available
-                    available_pairs = await self.collector.get_available_pairs()
-                    logger.info(f"📊 Available pairs in PyQuotex: {available_pairs}")
+                    # Get available trading pairs
+                    pairs = await self.collector.get_available_pairs()
                     
-                    # Filter trading pairs to only include available ones
-                    filtered_pairs = []
-                    for pair in self.collector.trading_pairs:
-                        if pair in available_pairs:
-                            filtered_pairs.append(pair)
-                        else:
-                            logger.warning(f"⚠️ Trading pair not available in PyQuotex: {pair}")
-                    
-                    if filtered_pairs:
-                        self.collector.trading_pairs = filtered_pairs
-                        logger.info(f"📊 Using available trading pairs: {filtered_pairs}")
+                    if pairs:
+                        # Filter to only include pairs we're interested in
+                        self.collector.trading_pairs = [p for p in DEFAULT_TRADING_PAIRS if p in pairs]
+                        logger.info(f"📊 Using trading pairs: {', '.join(self.collector.trading_pairs)}")
                     else:
-                        # Keep trying with configured pairs even if they're not in the available list
-                        # This is because the available pairs list might not be complete
-                        logger.warning("⚠️ None of the configured pairs were found in the available pairs list")
-                        logger.info(f"📊 Continuing with configured pairs: {self.collector.trading_pairs}")
+                        logger.warning("⚠️ No trading pairs available, using defaults")
+                        self.collector.trading_pairs = DEFAULT_TRADING_PAIRS
                     
                     return True
                 else:
-                    logger.warning(f"⚠️ Connection attempt {attempt + 1} failed")
-                    
+                    logger.error("❌ Failed to connect to PyQuotex")
             except Exception as e:
-                logger.error(f"❌ Connection error (attempt {attempt + 1}): {str(e)}")
+                logger.error(f"❌ Connection error: {str(e)}")
             
-            if attempt < self.max_reconnect_attempts - 1:
-                logger.info(f"⏳ Waiting {self.reconnect_delay}s before retry...")
-                await asyncio.sleep(self.reconnect_delay)
+            # Increment retry counter and wait before next attempt
+            retry_count += 1
+            self.stats['reconnection_attempts'] += 1
+            
+            if retry_count < max_retries:
+                wait_time = self.reconnect_delay * retry_count  # Exponential backoff
+                logger.info(f"⏳ Waiting {wait_time}s before next connection attempt...")
+                await asyncio.sleep(wait_time)
         
-        logger.error("❌ Failed to connect to PyQuotex after all attempts")
-        self.stats['reconnection_attempts'] += 1
+        logger.error(f"❌ Failed to connect after {max_retries} attempts")
         return False
     
     async def collect_data_cycle(self) -> bool:
         """Execute one data collection cycle"""
         
-        try:
-            logger.info("📊 Starting data collection cycle...")
-            cycle_start = datetime.now()
-            
-            # Check connection
-            if not self.collector.is_connected:
-                logger.warning("⚠️ PyQuotex connection lost. Reconnecting...")
-                if not await self.connect_to_pyquotex():
-                    return False
-            
-            # Collect data for all assets
+        logger.info("📊 Starting data collection cycle...")
+        
+        # Update service stats
+        self.stats['total_collections'] += 1
+        self.stats['uptime_seconds'] = (datetime.now() - self.stats['service_started']).total_seconds()
+        
+        # Check if collector is still connected
+        if not self.collector.is_connected:
+            logger.warning("⚠️ PyQuotex connection lost. Reconnecting...")
+            if not await self.connect_to_pyquotex():
+                raise Exception("Failed to reconnect to PyQuotex")
+        
+        # Collect data for all configured trading pairs
+        collected_candles = []
+        
+        for pair in self.collector.trading_pairs:
             try:
-                candles = await asyncio.wait_for(self.collector.collect_all_assets(), timeout=self.collection_timeout_secs)
-            except asyncio.TimeoutError:
-                logger.error(f"⏰ Collection timed out after {self.collection_timeout_secs}s")
-                self.stats['failed_collections'] += 1
-                self.consecutive_failures += 1
-                return False
-            
-            if candles:
-                self.stats['successful_collections'] += 1
-                self.stats['last_collection'] = datetime.now()
-                self.consecutive_failures = 0
+                # Collect data for this pair
+                candles = await self.collector.collect_asset(pair)
                 
-                logger.info(f"✅ Collection successful: {len(candles)} candles collected")
-                
-                # Broadcast each candle via WebSocket
-                for candle in candles:
-                    # Log candle details
-                    logger.info(f"  📈 {candle.trading_pair}: {candle.direction} | "
-                              f"O:{candle.open:.5f} C:{candle.close:.5f} | "
-                              f"Change: {candle.change:+.5f}")
+                if candles:
+                    collected_candles.extend(candles)
+                    logger.info(f"✅ Collected {len(candles)} candles for {pair}")
                     
-                    # Broadcast to WebSocket clients
-                    if self.websocket_broadcast_func:
+                    # Broadcast each candle via WebSocket
+                    for candle in candles:
                         try:
-                            await self.websocket_broadcast_func(candle)
-                            logger.debug(f"📡 Broadcasted {candle.trading_pair} to WebSocket clients")
-                        except Exception as ws_error:
-                            logger.warning(f"⚠️ WebSocket broadcast failed for {candle.trading_pair}: {ws_error}")
-                
-                # Get database stats
-                db_stats = await self.mongodb.get_stats()
-                logger.info(f"📊 Database: {db_stats['candle_count']} total candles")
-                
-                return True
-            else:
-                logger.warning("⚠️ No candles collected this cycle")
-                self.consecutive_failures += 1
-                return False
-                
-        except Exception as e:
-            logger.error(f"❌ Data collection error: {str(e)}")
-            self.stats['failed_collections'] += 1
-            self.consecutive_failures += 1
+                            # Convert to dict for serialization
+                            candle_dict = candle.to_dict()
+                            
+                            # Broadcast to WebSocket clients
+                            if self.websocket_broadcast_func:
+                                try:
+                                    await self.websocket_broadcast_func(candle)
+                                    logger.debug(f"📡 Broadcasted {candle.trading_pair} to WebSocket clients")
+                                except Exception as ws_error:
+                                    logger.warning(f"⚠️ WebSocket broadcast failed for {candle.trading_pair}: {ws_error}")
+                        except Exception as e:
+                            logger.error(f"❌ Error broadcasting candle: {str(e)}")
+                else:
+                    logger.warning(f"⚠️ No candles collected for {pair}")
+            except Exception as e:
+                logger.error(f"❌ Error collecting data for {pair}: {str(e)}")
+        
+        # Update stats and connection health indicators
+        if collected_candles:
+            self.stats['successful_collections'] += 1
+            self.stats['last_collection'] = datetime.now()
+            self.last_successful_ping = datetime.now()  # Update ping time on successful collection
+            logger.info(f"✅ Collection cycle complete. Collected {len(collected_candles)} candles total.")
+        else:
+            logger.warning("⚠️ No candles collected in this cycle")
+        
+        return True
+    
+    async def check_connection_health(self) -> bool:
+        """Check if the websocket connection is healthy"""
+        # Check if we need to force a reconnection based on time
+        time_since_last_reconnect = (datetime.now() - self.last_forced_reconnect).total_seconds()
+        if time_since_last_reconnect > self.force_reconnect_interval:
+            logger.warning(f"⚠️ Force reconnect interval reached ({self.force_reconnect_interval}s). Reconnecting...")
             return False
-        finally:
-            self.stats['total_collections'] += 1
+            
+        # Check if we've received a ping recently
+        time_since_last_ping = (datetime.now() - self.last_successful_ping).total_seconds()
+        if time_since_last_ping > self.max_ping_interval:
+            logger.warning(f"⚠️ No successful ping in {time_since_last_ping:.1f}s (max: {self.max_ping_interval}s). Connection may be stale.")
+            return False
+            
+        # Check if the collector reports as connected
+        if not self.collector or not self.collector.is_connected:
+            logger.warning("⚠️ Collector reports as disconnected")
+            return False
+            
+        return True
     
     async def run_continuous_collection(self):
         """Main continuous collection loop"""
         
-        logger.info("🔄 Starting continuous data collection...")
+        logger.info("🚀 Starting continuous data collection...")
+        
+        # Initialize service state
         self.is_running = True
+        self.should_stop = False
         self.stats['service_started'] = datetime.now()
         
-        # Initial connection
-        if not await self.connect_to_pyquotex():
-            logger.error("❌ Failed initial connection. Service cannot start.")
-            return
-        
         try:
+            # Connect to PyQuotex
+            if not await self.connect_to_pyquotex():
+                logger.error("❌ Failed to connect to PyQuotex. Aborting.")
+                return
+            
+            # Main collection loop
             while not self.should_stop:
                 cycle_start = datetime.now()
                 
-                # Execute collection cycle
-                success = await self.collect_data_cycle()
+                # Check connection health before each cycle
+                if not await self.check_connection_health():
+                    logger.warning("🔄 Connection health check failed. Reconnecting...")
+                    await self.connect_to_pyquotex()
+                    # Continue to next cycle after reconnection attempt
+                    continue
                 
-                # Update uptime
-                if self.stats['service_started']:
-                    self.stats['uptime_seconds'] = (datetime.now() - self.stats['service_started']).total_seconds()
-                
-                # Log periodic statistics
-                if self.stats['total_collections'] % 10 == 0:  # Every 10 cycles
-                    self.log_statistics()
-
-                # Watchdog: if no successful collection for too long, force reconnect
-                stale = False
-                if self.stats['last_collection'] is None:
-                    stale = True
-                else:
-                    stale_secs = (datetime.now() - self.stats['last_collection']).total_seconds()
-                    stale = stale_secs > self.watchdog_stale_secs
-
-                if stale or self.consecutive_failures >= 3:
-                    logger.warning(
-                        f"🛟 Watchdog triggered (stale={stale}, consecutive_failures={self.consecutive_failures}). Forcing reconnect..."
-                    )
-                    try:
-                        if self.collector:
-                            await self.collector.disconnect()
-                    except Exception as e:
-                        logger.warning(f"⚠️ Error during disconnect: {e}")
-                    await asyncio.sleep(1)
-                    if not await self.connect_to_pyquotex():
-                        logger.error("❌ Reconnect failed. Will retry in next cycle.")
-                    else:
-                        logger.info("✅ Reconnected successfully after watchdog trigger")
+                try:
+                    # Execute one collection cycle
+                    await self.collect_data_cycle()
+                    
+                    # Reset consecutive failures counter on success
+                    self.consecutive_failures = 0
+                    # Update last successful ping time
+                    self.last_successful_ping = datetime.now()
+                    
+                except Exception as e:
+                    logger.error(f"❌ Collection cycle error: {str(e)}")
+                    self.stats['failed_collections'] += 1
+                    self.consecutive_failures += 1
+                    
+                    # If too many consecutive failures, try reconnecting
+                    if self.consecutive_failures >= 3:
+                        logger.warning(f"⚠️ {self.consecutive_failures} consecutive failures. Attempting reconnection...")
+                        await self.connect_to_pyquotex()
                         self.consecutive_failures = 0
                 
-                # Calculate sleep time
+                # Calculate sleep time until next cycle
                 cycle_duration = (datetime.now() - cycle_start).total_seconds()
                 sleep_time = max(0, self.collection_interval - cycle_duration)
                 
                 if sleep_time > 0:
                     logger.info(f"⏳ Next collection in {sleep_time:.1f}s...")
                     
-                    # Sleep with periodic wake-ups to check stop signal
+                    # Sleep with periodic wake-ups to check stop signal and connection health
                     sleep_intervals = int(sleep_time / 5) + 1
-                    for _ in range(sleep_intervals):
+                    for i in range(sleep_intervals):
                         if self.should_stop:
                             break
                         await asyncio.sleep(min(5, sleep_time))
                         sleep_time -= 5
+                        
+                        # Periodically check connection health during long sleep periods
+                        if i > 0 and i % 6 == 0:  # Every 30 seconds (6 * 5s)
+                            if not await self.check_connection_health():
+                                logger.warning("🔄 Connection health check failed during sleep. Breaking sleep cycle to reconnect.")
+                                break
+                        
                         if sleep_time <= 0:
                             break
                 
         except Exception as e:
             logger.error(f"❌ Critical service error: {str(e)}")
+        
         finally:
             await self.shutdown()
     
