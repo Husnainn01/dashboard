@@ -277,12 +277,33 @@ const PredictionDashboard = () => {
             rawModel: JSON.stringify(model)
           });
           
+          // Extract date from model name if available
+          let displayName = model.model_name || model.model_id;
+          let modelDate = 'Unknown';
+          let algorithmType = model.algorithm || 'unknown';
+          
+          // Parse date from model name (format: algorithm_tradingpair_YYYY-MM-DD)
+          if (displayName && displayName.includes('_')) {
+            const parts = displayName.split('_');
+            if (parts.length >= 3) {
+              // Last part should be the date
+              const dateStr = parts[parts.length - 1];
+              if (dateStr.match(/\d{4}-\d{2}-\d{2}/)) {
+                modelDate = dateStr;
+              }
+              // First part should be the algorithm
+              if (!model.algorithm && parts[0]) {
+                algorithmType = parts[0];
+              }
+            }
+          }
+          
           formattedModels.push({
             id: model.model_id || model.model_name,
-            name: model.model_name || model.model_id,
-            algorithm: model.algorithm || 'unknown',
+            name: displayName,
+            algorithm: algorithmType,
             accuracy: model.accuracy || model.metrics?.accuracy || 0,
-            created_at: model.created_at || 'Unknown',
+            created_at: model.created_at || modelDate,
             location: 'local'
           });
         });
@@ -299,12 +320,33 @@ const PredictionDashboard = () => {
             rawModel: JSON.stringify(model)
           });
           
+          // Extract date from model name if available
+          let displayName = model.model_name || model.model_id;
+          let modelDate = 'Unknown';
+          let algorithmType = model.algorithm || 'unknown';
+          
+          // Parse date from model name (format: algorithm_tradingpair_YYYY-MM-DD)
+          if (displayName && displayName.includes('_')) {
+            const parts = displayName.split('_');
+            if (parts.length >= 3) {
+              // Last part should be the date
+              const dateStr = parts[parts.length - 1];
+              if (dateStr.match(/\d{4}-\d{2}-\d{2}/)) {
+                modelDate = dateStr;
+              }
+              // First part should be the algorithm
+              if (!model.algorithm && parts[0]) {
+                algorithmType = parts[0];
+              }
+            }
+          }
+          
           formattedModels.push({
             id: model.model_id || model.model_name,
-            name: model.model_name || model.model_id,
-            algorithm: model.algorithm || 'unknown',
+            name: displayName,
+            algorithm: algorithmType,
             accuracy: model.accuracy || model.metrics?.accuracy || 0,
-            created_at: model.created_at || 'Unknown',
+            created_at: model.created_at || modelDate,
             location: 'cloud'
           });
           console.log(`Model ${model.model_id || model.model_name} accuracy:`, model.accuracy || model.metrics?.accuracy || 0);
@@ -381,6 +423,12 @@ const PredictionDashboard = () => {
           onSelectModel={setSelectedModel}
           onConfirm={handleModelSelectionConfirm}
           onCancel={handleModelSelectionCancel}
+          formatModelName={(model) => {
+            // Create a user-friendly display name
+            const algorithm = model.algorithm || 'Unknown';
+            const date = model.created_at || 'Unknown date';
+            return `${algorithm.toUpperCase()} (${date})`;
+          }}
           isLoading={isLoadingModels}
         />
       )}

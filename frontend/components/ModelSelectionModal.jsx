@@ -10,7 +10,8 @@ const ModelSelectionModal = ({
   onSelectModel,
   onConfirm,
   onCancel,
-  isLoading
+  isLoading,
+  formatModelName = (model) => model.name // Default formatter if not provided
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredModels, setFilteredModels] = useState(models);
@@ -117,7 +118,7 @@ const ModelSelectionModal = ({
                   onClick={() => onSelectModel(model)}
                 >
                   <div className="model-header">
-                    <div className="model-name">{model.name}</div>
+                    <div className="model-name">{formatModelName(model)}</div>
                     <div className={`model-algorithm ${model.algorithm}`}>
                       {model.algorithm}
                     </div>

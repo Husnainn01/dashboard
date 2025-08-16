@@ -384,8 +384,9 @@ class ModelTrainer:
                          trading_pair: str, metrics: Dict[str, float]) -> str:
         """Save trained model and metadata"""
         
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        model_name = f"{algorithm}_{trading_pair.replace(' ', '_')}_{timestamp}"
+        # Simplified model naming convention: algorithm_tradingpair_date
+        date = datetime.utcnow().strftime("%Y-%m-%d")
+        model_name = f"{algorithm}_{trading_pair.replace('/', '_').replace(' ', '_')}_{date}"
         
         # Prepare model data (combine model and scaler)
         model_data = {
