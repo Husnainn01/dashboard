@@ -327,14 +327,24 @@ export const stopPredictionService = async () => {
  * @returns {Promise<Object>} Response
  */
 export const selectModel = async (tradingPair, modelName, modelType = null) => {
-  return await apiRequest('/predictions/select_model', {
-    method: 'POST',
-    body: JSON.stringify({
-      trading_pair: tradingPair,
-      model_name: modelName,
-      model_type: modelType
-    })
-  });
+  const payload = {
+    trading_pair: tradingPair,
+    model_name: modelName,
+    model_type: modelType
+  };
+  const attempt = async () =>
+    await apiRequest('/predictions/select_model', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+
+  try {
+    return await attempt();
+  } catch (err) {
+    console.warn('⚠️ selectModel failed, retrying in 1s...', err?.message || err);
+    await new Promise((r) => setTimeout(r, 1000));
+    return await attempt();
+  }
 };
 
 // =============================================================================

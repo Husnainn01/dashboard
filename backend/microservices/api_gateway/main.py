@@ -649,6 +649,41 @@ async def select_prediction_model(request: Request):
                 logger.warning(f"⚠️ Forward to {path} failed: {type(e).__name__}: {str(e)}")
                 last_error = (None, str(e))
         
+        # Brief backoff and retry once to absorb cold start/route mount races
+        try:
+            logger.info("⏳ Retrying model selection after brief backoff (1.5s)...")
+            await asyncio.sleep(1.5)
+            for idx, path in enumerate(target_paths):
+                try:
+                    logger.info(f"📡 Retry: forwarding model selection to prediction service path: {path}")
+                    response = await forward_request(
+                        request,
+                        "prediction",
+                        path
+                    )
+                    if hasattr(response, "status_code") and response.status_code == 200:
+                        logger.info(f"✅ Retry succeeded: model selection for {trading_pair} via {path}")
+                        return response
+                    else:
+                        body_preview = None
+                        try:
+                            if hasattr(response, "body_iterator"):
+                                body_preview = "<streaming>"
+                            else:
+                                body_preview = response.body.decode()[:200] if getattr(response, "body", None) else None
+                        except Exception:
+                            body_preview = None
+                        logger.warning(f"⚠️ Retry received {getattr(response, 'status_code', 'unknown')} for {path}. Body: {body_preview}")
+                        last_error = (getattr(response, 'status_code', None), body_preview)
+                except HTTPException as e:
+                    logger.warning(f"⚠️ Retry forward to {path} failed with HTTPException {e.status_code}: {e.detail}")
+                    last_error = (e.status_code, str(e.detail))
+                except Exception as e:
+                    logger.warning(f"⚠️ Retry forward to {path} failed: {type(e).__name__}: {str(e)}")
+                    last_error = (None, str(e))
+        except Exception as retry_err:
+            logger.warning(f"⚠️ Retry block encountered an error: {type(retry_err).__name__}: {str(retry_err)}")
+        
         # If all attempts failed, return the last error with context
         status_code = last_error[0] if last_error and isinstance(last_error[0], int) else 502
         detail = last_error[1] if last_error and last_error[1] else "Prediction service route not found"
@@ -1160,7 +1195,7 @@ async def startup_event():
     setup_signal_handlers()
     
     # Initialize HTTP client
-    http_client = httpx.AsyncClient(timeout=10.0)
+    http_client = httpx.AsyncClient(timeout=25.0)
     
     # Start prediction polling task
     gateway_state["prediction_polling_task"] = asyncio.create_task(poll_predictions())
