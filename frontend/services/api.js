@@ -12,6 +12,12 @@ console.log('🔌 API Service loaded - API Gateway:', API_BASE_URL);
 const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://apigatewayfront-end-production.up.railway.app';
 console.log('📡 WebSocket URL:', WS_BASE_URL);
 
+// Base API URL
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://apigatewayfront-end-production.up.railway.app';
+
+// ML Training Service URL (direct access)
+const ML_TRAINING_URL = 'https://ml-traning-service-production.up.railway.app';
+
 /**
  * Generic API request handler with error handling
  * @param {string} endpoint - API endpoint
@@ -22,8 +28,51 @@ const apiRequest = async (endpoint, options = {}) => {
   try {
     // Add cache-busting parameter for GET requests
     const cacheBuster = options.method === 'GET' ? `${endpoint.includes('?') ? '&' : '?'}_t=${Date.now()}` : '';
-    const url = `${API_BASE_URL}${endpoint}${cacheBuster}`;
-    console.log(`🌐 API Request: ${options.method || 'GET'} ${url}`);
+    
+    // Construct full URL
+    const url = `${API_URL}${endpoint}${cacheBuster}`;
+    console.log(`🔌 API Request: ${options.method || 'GET'} ${url}`);
+    
+    // Set default headers
+    const headers = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    };
+    
+    // Make request
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
+    
+    // Handle non-200 responses
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ API Error (${response.status}): ${errorText}`);
+      throw new Error(`API Error: ${response.status} ${errorText}`);
+    }
+    
+    // Parse JSON response
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('❌ API Request failed:', error);
+    throw error;
+  }
+};
+
+/**
+ * Make a direct request to the ML Training Service (bypassing API Gateway)
+ * @param {string} endpoint - ML Training service endpoint
+ * @param {Object} options - Fetch options
+ * @returns {Promise<Object>} Response data
+ */
+const directMLTrainingRequest = async (endpoint, options = {}) => {
+  try {
+    // Add cache-busting parameter for GET requests
+    const cacheBuster = options.method === 'GET' ? `${endpoint.includes('?') ? '&' : '?'}_t=${Date.now()}` : '';
+    const url = `${ML_TRAINING_URL}${endpoint}${cacheBuster}`;
+    console.log(`🔄 Direct ML Training Request: ${options.method || 'GET'} ${url}`);
     
     const response = await fetch(url, {
       headers: {
@@ -34,17 +83,20 @@ const apiRequest = async (endpoint, options = {}) => {
       },
       ...options
     });
-
+    
+    // Handle non-200 responses
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+      const errorText = await response.text();
+      console.error(`❌ ML Training API Error (${response.status}): ${errorText}`);
+      throw new Error(`ML Training API Error: ${response.status} ${errorText}`);
     }
-
+    
+    // Parse JSON response
     const data = await response.json();
-    console.log(`✅ API Response: ${endpoint}`, data);
+    console.log('✅ ML Training API Response:', data);
     return data;
   } catch (error) {
-    console.error(`❌ API Error: ${endpoint}`, error.message);
+    console.error(`❌ ML Training API Error: ${endpoint}`, error.message);
     throw error;
   }
 };
@@ -194,6 +246,20 @@ export const getModelsForPair = async (tradingPair) => {
  * @returns {Promise<Object>} Retraining response
  */
 export const retrainModel = async (tradingPair = 'USD/BRL(OTC)', modelType = 'xgboost', forceRetrain = false) => {
+  // Special handling for LightGBM model type - direct API call to ML training service
+  if (modelType.toLowerCase() === 'lightgbm') {
+    console.log('🔄 Using direct API call for LightGBM model training');
+    return await directMLTrainingRequest('/train', {
+      method: 'POST',
+      body: JSON.stringify({
+        trading_pair: tradingPair,
+        model_type: modelType,
+        force_retrain: forceRetrain
+      })
+    });
+  }
+  
+  // Normal API Gateway call for other model types
   return await apiRequest('/ml/train', {
     method: 'POST',
     body: JSON.stringify({
