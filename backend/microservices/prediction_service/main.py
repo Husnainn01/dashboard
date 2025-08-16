@@ -114,6 +114,7 @@ manager = ConnectionManager()
 mongodb_manager = None
 model_trainer = None
 feature_engineer = None
+model_selections = {}  # Track user-selected models per trading pair
 model_storage_manager = None
 
 # Import prediction manager and parallel processor modules
@@ -514,16 +515,27 @@ async def get_status():
 
 @app.post("/predict", response_model=PredictionResponse)
 async def make_prediction(request: PredictionRequest):
+    """Generate a prediction for a trading pair"""
     # Start timing for monitoring
     start_time = time.time()
-    """Generate a prediction for a trading pair"""
-    global model_trainer, mongodb_manager
-    
-    # Start timing for performance measurement
-    start_time = time.time()
+    global model_trainer, mongodb_manager, model_selections
     
     try:
         logger.info(f"🔮 Making prediction for {request.trading_pair}")
+        
+        # Store model selection for future use if provided
+        if getattr(request, 'model_name', None) or getattr(request, 'model_type', None):
+            model_selections[request.trading_pair] = {
+                'model_name': getattr(request, 'model_name', None),
+                'model_type': getattr(request, 'model_type', None)
+            }
+            logger.info(f"🔑 Stored model selection for {request.trading_pair}: {model_selections[request.trading_pair]}")
+            
+            # Start continuous predictions if not already running
+            if not prediction_service_state["is_running"]:
+                logger.info(f"🔮 Starting continuous predictions with user-selected model")
+                prediction_service_state["is_running"] = True
+                asyncio.create_task(run_continuous_predictions())
         
         # Load explicit model if provided, otherwise get best model
         if getattr(request, 'model_name', None):
@@ -983,23 +995,68 @@ async def get_active_pairs():
         "priority_pair": prediction_service_state["priority_pair"]
     }
 
-@app.post("/start")
-async def start_prediction_service():
-    """Start continuous prediction service"""
-    global prediction_service_state
-    
+@app.post("/start", response_model=Dict)
+async def start_predictions(request: PredictionRequest = None):
+    """Start the prediction service with an optional model selection"""
+    global prediction_service_state, model_selections
+
     if prediction_service_state["is_running"]:
+        logger.info("🔮 Prediction service already running")
         return {"status": "already_running"}
-    
-    # Start prediction service in background
-    asyncio.create_task(run_continuous_predictions())
-    
-    return {"status": "starting"}
+
+    # If a specific model is requested, store the selection
+    if request and request.trading_pair:
+        # Store model selection for future use
+        model_selections[request.trading_pair] = {
+            'model_name': getattr(request, 'model_name', None),
+            'model_type': getattr(request, 'model_type', None)
+        }
+        logger.info(f"🔑 Starting with model selection for {request.trading_pair}: {model_selections[request.trading_pair]}")
+
+        # Add the trading pair to active pairs if not already there
+        if request.trading_pair not in prediction_service_state["active_pairs"]:
+            prediction_service_state["active_pairs"].add(request.trading_pair)
+
+    # Only start if we have at least one model selection
+    if model_selections:
+        # Start prediction service in background
+        prediction_service_state["is_running"] = True
+        asyncio.create_task(run_continuous_predictions())
+        return {"status": "starting", "model_selections": model_selections}
+    else:
+        return {"status": "error", "message": "No model selections available. Please select a model first."}
+
+@app.post("/select_model", response_model=Dict)
+async def select_model(request: PredictionRequest):
+    """Select a model for a specific trading pair without starting predictions"""
+    global model_selections
+
+    if not request.trading_pair:
+        return {"status": "error", "message": "Trading pair is required"}
+
+    # Store model selection for future use
+    model_selections[request.trading_pair] = {
+        'model_name': getattr(request, 'model_name', None),
+        'model_type': getattr(request, 'model_type', None)
+    }
+
+    # Add the trading pair to active pairs if not already there
+    if request.trading_pair not in prediction_service_state["active_pairs"]:
+        prediction_service_state["active_pairs"].add(request.trading_pair)
+
+    logger.info(f"🔑 Model selected for {request.trading_pair}: {model_selections[request.trading_pair]}")
+
+    return {
+        "status": "success", 
+        "message": f"Model selected for {request.trading_pair}",
+        "model_selection": model_selections[request.trading_pair]
+    }
 
 @app.post("/stop")
 async def stop_prediction_service():
     """Stop continuous prediction service"""
     global prediction_service_state
+
     
     if not prediction_service_state["is_running"]:
         return {"status": "not_running"}
@@ -1221,12 +1278,17 @@ async def run_continuous_predictions():
                            f"Current candle: {schedule_info['current_candle']}, "  
                            f"Next candle: {schedule_info['next_candle']}")
                 
-                # Get active trading pairs or use defaults if none are active
+                # Get active trading pairs - don't use defaults
                 active_pairs = prediction_service_state["active_pairs"]
                 priority_pair = prediction_service_state["priority_pair"]
                 
-                # If no pairs are active, use defaults
-                pairs_to_predict = active_pairs if active_pairs else DEFAULT_TRADING_PAIRS
+                # Only predict for pairs that have explicit model selections
+                # This ensures we only predict when the user has selected a model
+                pairs_to_predict = set()
+                for pair in active_pairs:
+                    if pair in model_selections:
+                        pairs_to_predict.add(pair)
+                        logger.info(f"🔑 Using selected model for {pair}: {model_selections[pair]}")
                 
                 # If we have a priority pair, process it first
                 if priority_pair:
@@ -1388,12 +1450,10 @@ async def startup_event():
     
     # Auto-start prediction service
     global prediction_service_state
-    if not prediction_service_state["is_running"]:
-        prediction_service_state["is_running"] = True
-        asyncio.create_task(run_continuous_predictions())
-        logger.info("🔮 Prediction service started automatically")
-        
-    logger.info("✅ Prediction Service started successfully")
+    # Don't automatically start continuous predictions
+    # User will explicitly start predictions when they select a model
+    
+    logger.info("✅ Prediction Service initialized successfully - waiting for user model selection")
 
 @app.on_event("shutdown")
 async def shutdown_event():

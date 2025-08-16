@@ -572,6 +572,15 @@ async def stop_prediction_service():
         method="POST"
     )
 
+@app.post("/predictions/select_model")
+async def select_prediction_model(request: Request):
+    """Select a model for a specific trading pair without starting predictions"""
+    return await forward_request(
+        request,
+        "prediction", 
+        "/select_model"
+    )
+
 # WebSocket proxy for market data
 @app.websocket("/ws/market-data")
 async def websocket_market_data(websocket: WebSocket):
