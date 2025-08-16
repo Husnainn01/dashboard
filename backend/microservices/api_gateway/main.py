@@ -602,11 +602,26 @@ async def stop_prediction_service():
 @app.post("/predictions/select_model")
 async def select_prediction_model(request: Request):
     """Select a model for a specific trading pair without starting predictions"""
-    return await forward_request(
-        request,
-        "prediction", 
-        "/select_model"
-    )
+    try:
+        logger.info("🔍 Received request to select prediction model")
+        data = await request.json()
+        trading_pair = data.get("trading_pair")
+        model_name = data.get("model_name")
+        model_type = data.get("model_type")
+        logger.info(f"🔍 Selecting model for trading pair: {trading_pair}, model: {model_name}, type: {model_type}")
+        
+        # Forward the request directly to the root /select_model endpoint
+        result = await forward_request(
+            request,
+            "prediction", 
+            "/select_model"
+        )
+        logger.info(f"✅ Model selection successful for {trading_pair}")
+        return result
+    except Exception as e:
+        logger.error(f"❌ Error in model selection endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to select model: {str(e)}")
+
 
 # WebSocket proxy for market data
 @app.websocket("/ws/market-data")
