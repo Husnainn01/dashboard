@@ -61,7 +61,7 @@ service_config = {
     },
     "ml_training": {
         # Using the public domain provided for ML training service
-        "host": os.getenv("ML_SERVICE_HOST", "ml-training-service-production.up.railway.app"),
+        "host": os.getenv("ML_SERVICE_HOST", "ml-traning-service-production.up.railway.app"),
         "port": int(os.getenv("ML_SERVICE_PORT", "5002"))
     },
     "prediction": {
