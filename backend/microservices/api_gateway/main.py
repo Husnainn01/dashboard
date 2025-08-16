@@ -469,11 +469,11 @@ async def make_prediction(request: Request):
         trading_pair = data.get("trading_pair")
         logger.info(f"🔮 POST prediction request for trading pair: {trading_pair}")
         
+        # Forward the request directly
         result = await forward_request(
+            request,
             "prediction", 
-            "/predict", 
-            method="POST", 
-            data=data
+            "/predict"
         )
         logger.info(f"✅ POST prediction successful for {trading_pair}")
         return result
