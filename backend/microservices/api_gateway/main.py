@@ -441,12 +441,41 @@ async def get_models_for_pair(trading_pair: str):
 @app.post("/ml/train")
 async def train_model(request: Request):
     """Train a new model for a trading pair"""
-    # Forward the request directly
-    return await forward_request(
-        request,
-        "ml_training", 
-        "/train"
-    )
+    # Log detailed request information
+    logger.info(f"🔄 Received POST request to /ml/train endpoint")
+    
+    try:
+        # Log request body
+        body = await request.json()
+        logger.info(f"🔄 Request body: {body}")
+        logger.info(f"🔄 Model type requested: {body.get('model_type')}")
+        
+        # Log target service info
+        config = service_config.get("ml_training")
+        logger.info(f"🔄 ML training service config: host={config['host']}, port={config['port']}")
+        
+        # Construct target URL for debugging
+        target_url = get_service_url("ml_training", "/train")
+        logger.info(f"🔄 Target URL for forwarding: {target_url}")
+        
+        # Forward the request directly
+        logger.info(f"🔄 Forwarding request to ML training service...")
+        response = await forward_request(
+            request,
+            "ml_training", 
+            "/train"
+        )
+        
+        # Log response
+        logger.info(f"🔄 Received response from ML training service: {response.status_code}")
+        logger.info(f"🔄 Response headers: {dict(response.headers)}")
+        
+        return response
+    except Exception as e:
+        logger.error(f"❌ Error in train_model endpoint: {str(e)}")
+        logger.error(f"❌ Exception type: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail=f"Error processing training request: {str(e)}")
+
 
 @app.post("/ml/train-all")
 async def train_all_models(request: Request):
