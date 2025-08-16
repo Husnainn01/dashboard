@@ -1052,6 +1052,17 @@ async def select_model(request: PredictionRequest):
         "model_selection": model_selections[request.trading_pair]
     }
 
+# Alias routes to handle potential API gateway/service path prefixes in production
+@app.post("/predictions/select_model", response_model=Dict)
+async def select_model_prefixed(request: PredictionRequest):
+    """Alias for selecting a model when service is mounted with a /predictions prefix"""
+    return await select_model(request)
+
+@app.post("/api/select_model", response_model=Dict)
+async def select_model_api_prefix(request: PredictionRequest):
+    """Alias for selecting a model when service is mounted with an /api prefix"""
+    return await select_model(request)
+
 @app.post("/stop")
 async def stop_prediction_service():
     """Stop continuous prediction service"""

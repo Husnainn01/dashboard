@@ -610,14 +610,50 @@ async def select_prediction_model(request: Request):
         model_type = data.get("model_type")
         logger.info(f"🔍 Selecting model for trading pair: {trading_pair}, model: {model_name}, type: {model_type}")
         
-        # Forward the request directly to the root /select_model endpoint
-        result = await forward_request(
-            request,
-            "prediction", 
-            "/select_model"
-        )
-        logger.info(f"✅ Model selection successful for {trading_pair}")
-        return result
+        # Try multiple possible paths on the prediction service to handle deployment mismatches
+        target_paths = [
+            "/select_model",                  # expected path
+            "/predictions/select_model",      # possible prefixed path
+            "/api/select_model"               # alternative common prefix
+        ]
+        last_error = None
+        for idx, path in enumerate(target_paths):
+            try:
+                logger.info(f"📡 Forwarding model selection to prediction service path: {path}")
+                response = await forward_request(
+                    request,
+                    "prediction",
+                    path
+                )
+                # forward_request returns a FastAPI Response object
+                if hasattr(response, "status_code") and response.status_code == 200:
+                    logger.info(f"✅ Model selection successful for {trading_pair} via {path}")
+                    return response
+                else:
+                    # Capture text body for diagnostics when possible
+                    body_preview = None
+                    try:
+                        if hasattr(response, "body_iterator"):
+                            # Response may be streaming; avoid consuming generator
+                            body_preview = "<streaming>"
+                        else:
+                            body_preview = response.body.decode()[:200] if getattr(response, "body", None) else None
+                    except Exception:
+                        body_preview = None
+                    logger.warning(f"⚠️ Prediction service returned {getattr(response, 'status_code', 'unknown')} for {path}. Body: {body_preview}")
+                    last_error = (getattr(response, 'status_code', None), body_preview)
+            except HTTPException as e:
+                logger.warning(f"⚠️ Forward to {path} failed with HTTPException {e.status_code}: {e.detail}")
+                last_error = (e.status_code, str(e.detail))
+            except Exception as e:
+                logger.warning(f"⚠️ Forward to {path} failed: {type(e).__name__}: {str(e)}")
+                last_error = (None, str(e))
+        
+        # If all attempts failed, return the last error with context
+        status_code = last_error[0] if last_error and isinstance(last_error[0], int) else 502
+        detail = last_error[1] if last_error and last_error[1] else "Prediction service route not found"
+        logger.error(f"❌ Model selection failed for {trading_pair}. Tried paths: {target_paths}. Last error: {status_code} {detail}")
+        raise HTTPException(status_code=status_code, detail=f"Model selection failed: {detail}")
     except Exception as e:
         logger.error(f"❌ Error in model selection endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to select model: {str(e)}")
