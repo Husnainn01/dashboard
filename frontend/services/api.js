@@ -253,6 +253,24 @@ export const stopPredictionService = async () => {
   });
 };
 
+/**
+ * Select a model for a trading pair without starting predictions
+ * @param {string} tradingPair - Trading pair
+ * @param {string} modelName - Model name
+ * @param {string} modelType - Model type (optional)
+ * @returns {Promise<Object>} Response
+ */
+export const selectModel = async (tradingPair, modelName, modelType = null) => {
+  return await apiRequest('/predictions/select_model', {
+    method: 'POST',
+    body: JSON.stringify({
+      trading_pair: tradingPair,
+      model_name: modelName,
+      model_type: modelType
+    })
+  });
+};
+
 // =============================================================================
 // WEBSOCKET CONNECTIONS
 // =============================================================================
@@ -421,6 +439,7 @@ export default {
   // Prediction Service Control
   startPredictionService,
   stopPredictionService,
+  selectModel,
   
   // WebSocket Connections
   createPredictionWebSocket,

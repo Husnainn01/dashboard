@@ -9,7 +9,8 @@ import {
   getLatestPrediction,
   startPredictionService,
   stopPredictionService,
-  getModelsForPair
+  getModelsForPair,
+  selectModel
 } from '../services/api';
 
 const PredictionDashboard = () => {
@@ -340,11 +341,26 @@ const PredictionDashboard = () => {
   };
   
   // Handle model selection confirmation
-  const handleModelSelectionConfirm = () => {
+  const handleModelSelectionConfirm = async () => {
     setShowModelSelection(false);
     if (selectedModel) {
       console.log(`Selected model: ${selectedModel.name} (${selectedModel.algorithm})`);
-      setPredictionActive(true);
+      
+      try {
+        // First select the model
+        await selectModel(
+          selectedPair, 
+          selectedModel.name, 
+          selectedModel.algorithm
+        );
+        console.log(`Model selection confirmed for ${selectedPair}: ${selectedModel.name}`);
+        
+        // Then start the prediction service
+        setPredictionActive(true);
+      } catch (error) {
+        console.error('Error selecting model:', error);
+        alert(`Failed to select model: ${error.message}`);
+      }
     }
   };
   
