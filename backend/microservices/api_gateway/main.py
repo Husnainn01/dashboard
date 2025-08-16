@@ -441,23 +441,21 @@ async def get_models_for_pair(trading_pair: str):
 @app.post("/ml/train")
 async def train_model(request: Request):
     """Train a new model for a trading pair"""
-    data = await request.json()
+    # Forward the request directly
     return await forward_request(
+        request,
         "ml_training", 
-        "/train", 
-        method="POST", 
-        data=data
+        "/train"
     )
 
 @app.post("/ml/train-all")
 async def train_all_models(request: Request):
     """Train models for all configured trading pairs"""
-    data = await request.json()
+    # Forward the request directly
     return await forward_request(
+        request,
         "ml_training", 
-        "/train-all", 
-        method="POST", 
-        data=data
+        "/train-all"
     )
 
 # Prediction service routes
