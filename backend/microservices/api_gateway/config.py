@@ -5,12 +5,9 @@ Configuration for ML Training Service
 import os
 from pathlib import Path
 
-# Trading Configuration
+# Trading Configuration (use exact stored identifier)
 DEFAULT_TRADING_PAIRS = [
-    "USD/BRL(OTC)",
-    "NZD/CAD(OTC)",
-    "USD/BDT(OTC)",
-    "USD/EGP(OTC)"
+    "BRLUSD_otc"
 ]
 
 # ML Model Configuration

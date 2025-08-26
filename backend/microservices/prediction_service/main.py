@@ -28,6 +28,16 @@ current_dir = Path(__file__).parent
 backend_dir = current_dir.parent.parent
 sys.path.append(str(backend_dir))
 
+# Pair normalization helper (delegate to shared utility)
+from shared.pairs import normalize_internal as _normalize_internal
+
+def normalize_trading_pair(raw: str) -> str:
+    """Normalize trading pair to canonical internal form using shared utility.
+
+    Canonical: 'USDBRL'. Accepts aliases like 'USD/BRL(OTC)', 'USD/BRL', 'USDBRL OTC', 'USDBRL_otc'.
+    """
+    return _normalize_internal(raw)
+
 from ml_models.feature_engineering import FeatureEngineer
 from database.mongodb_models import MongoDBManager, PredictionData
 from config import DEFAULT_TRADING_PAIRS, PREDICTION_CONFIDENCE_THRESHOLD, STORAGE_CONFIG
@@ -521,15 +531,16 @@ async def make_prediction(request: PredictionRequest):
     global model_trainer, mongodb_manager, model_selections
     
     try:
-        logger.info(f"🔮 Making prediction for {request.trading_pair}")
+        canonical = normalize_trading_pair(request.trading_pair)
+        logger.info(f"🔮 Making prediction for {request.trading_pair} (canonical: {canonical})")
         
         # Store model selection for future use if provided
         if getattr(request, 'model_name', None) or getattr(request, 'model_type', None):
-            model_selections[request.trading_pair] = {
+            model_selections[canonical] = {
                 'model_name': getattr(request, 'model_name', None),
                 'model_type': getattr(request, 'model_type', None)
             }
-            logger.info(f"🔑 Stored model selection for {request.trading_pair}: {model_selections[request.trading_pair]}")
+            logger.info(f"🔑 Stored model selection for {canonical}: {model_selections[canonical]}")
             
             # Start continuous predictions if not already running
             if not prediction_service_state["is_running"]:
@@ -557,31 +568,31 @@ async def make_prediction(request: PredictionRequest):
                 metadata.setdefault('metrics', {'accuracy': 0.5})
                     
                 # Store this successful model selection for future use
-                model_selections[request.trading_pair] = {'model_name': request.model_name, 'model_type': None}
+                model_selections[canonical] = {'model_name': request.model_name, 'model_type': None}
             except Exception as e:
                 logger.error(f"❌ Failed to load requested model {request.model_name}: {str(e)}")
                 logger.info(f"⚠️ Falling back to best available model for {request.trading_pair}")
                 # Fall back to best model
                 model, scaler, metadata = await get_best_model(
-                    request.trading_pair, request.model_type
+                    canonical, getattr(request, 'model_type', None)
                 )
         elif getattr(request, 'model_type', None):
             logger.info(f"🎛️ Explicit model type selection: {request.model_type}")
             # Get the best model of the specified type
             model, scaler, metadata = await get_best_model(
-                request.trading_pair, request.model_type
+                canonical, request.model_type
             )
             # Store this model type selection for future use
-            model_selections[request.trading_pair] = {'model_name': None, 'model_type': request.model_type}
+            model_selections[canonical] = {'model_name': None, 'model_type': request.model_type}
         else:
             # Get the best model
             model, scaler, metadata = await get_best_model(
-                request.trading_pair, None
+                canonical, None
             )
         
         # Prepare features
         try:
-            features, candles_used = await prepare_features_for_prediction(request.trading_pair)
+            features, candles_used = await prepare_features_for_prediction(canonical)
         except Exception as e:
             logger.error(f"❌ Error preparing features: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error preparing features: {str(e)}")
@@ -845,7 +856,7 @@ async def make_prediction(request: PredictionRequest):
         
         prediction_data = PredictionData(
             timestamp=timestamp_utc,
-            trading_pair=request.trading_pair,
+            trading_pair=canonical,
             prediction=prediction_direction,
             model_type=algorithm,
             model_version=model_version,
@@ -888,7 +899,7 @@ async def make_prediction(request: PredictionRequest):
             model_name = "unknown"
             
         return PredictionResponse(
-            trading_pair=request.trading_pair,
+            trading_pair=canonical,
             timestamp=timestamp_utc,
             prediction=prediction_direction,  
             probability=float(probability),
@@ -916,116 +927,6 @@ async def make_prediction(request: PredictionRequest):
         logger.error(f"❌ Prediction error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
-@app.get("/predict/{trading_pair}")
-async def quick_prediction(trading_pair: str, model_type: str = None, model_name: str = None):
-    """Quick prediction endpoint for a specific trading pair"""
-    # No fallback predictions - either return a real prediction or an error
-    request = PredictionRequest(trading_pair=trading_pair, model_type=model_type, model_name=model_name)
-    return await make_prediction(request)
-
-@app.get("/predict-by-query")
-async def quick_prediction_by_query(trading_pair: str, model_type: str = None, model_name: str = None):
-    """Alternative prediction endpoint using query parameters instead of path parameters"""
-    # No fallback predictions - either return a real prediction or an error
-    request = PredictionRequest(trading_pair=trading_pair, model_type=model_type, model_name=model_name)
-    return await make_prediction(request)
-
-@app.post("/subscribe")
-async def subscribe_to_pair(trading_pair: str):
-    """Subscribe to a trading pair for predictions using query parameter"""
-    global prediction_service_state
-    
-    prediction_service_state["active_pairs"].add(trading_pair)
-    logger.info(f"📊 Subscribed to trading pair: {trading_pair}")
-    logger.info(f"📊 Active pairs: {prediction_service_state['active_pairs']}")
-    
-    return {
-        "status": "subscribed",
-        "trading_pair": trading_pair,
-        "active_pairs": list(prediction_service_state["active_pairs"])
-    }
-
-@app.post("/unsubscribe")
-async def unsubscribe_from_pair(trading_pair: str):
-    """Unsubscribe from a trading pair using query parameter"""
-    global prediction_service_state
-    
-    if trading_pair in prediction_service_state["active_pairs"]:
-        prediction_service_state["active_pairs"].remove(trading_pair)
-        logger.info(f"📊 Unsubscribed from trading pair: {trading_pair}")
-    
-    # If this was the priority pair, clear it
-    if prediction_service_state["priority_pair"] == trading_pair:
-        prediction_service_state["priority_pair"] = None
-        logger.info(f"📊 Cleared priority pair")
-    
-    logger.info(f"📊 Active pairs: {prediction_service_state['active_pairs']}")
-    
-    return {
-        "status": "unsubscribed",
-        "trading_pair": trading_pair,
-        "active_pairs": list(prediction_service_state["active_pairs"])
-    }
-
-@app.post("/set-priority")
-async def set_priority_pair(trading_pair: str):
-    """Set a trading pair as the priority pair using query parameter"""
-    global prediction_service_state
-    
-    # Make sure the pair is subscribed
-    prediction_service_state["active_pairs"].add(trading_pair)
-    
-    # Set as priority
-    prediction_service_state["priority_pair"] = trading_pair
-    logger.info(f"📊 Set priority pair: {trading_pair}")
-    
-    return {
-        "status": "priority_set",
-        "priority_pair": trading_pair,
-        "active_pairs": list(prediction_service_state["active_pairs"])
-    }
-
-@app.get("/active-pairs")
-async def get_active_pairs():
-    """Get the list of active trading pairs"""
-    global prediction_service_state
-    
-    return {
-        "active_pairs": list(prediction_service_state["active_pairs"]),
-        "priority_pair": prediction_service_state["priority_pair"]
-    }
-
-@app.post("/start", response_model=Dict)
-async def start_predictions(request: PredictionRequest = None):
-    """Start the prediction service with an optional model selection"""
-    global prediction_service_state, model_selections
-
-    if prediction_service_state["is_running"]:
-        logger.info("🔮 Prediction service already running")
-        return {"status": "already_running"}
-
-    # If a specific model is requested, store the selection
-    if request and request.trading_pair:
-        # Store model selection for future use
-        model_selections[request.trading_pair] = {
-            'model_name': getattr(request, 'model_name', None),
-            'model_type': getattr(request, 'model_type', None)
-        }
-        logger.info(f"🔑 Starting with model selection for {request.trading_pair}: {model_selections[request.trading_pair]}")
-
-        # Add the trading pair to active pairs if not already there
-        if request.trading_pair not in prediction_service_state["active_pairs"]:
-            prediction_service_state["active_pairs"].add(request.trading_pair)
-
-    # Only start if we have at least one model selection
-    if model_selections:
-        # Start prediction service in background
-        prediction_service_state["is_running"] = True
-        asyncio.create_task(run_continuous_predictions())
-        return {"status": "starting", "model_selections": model_selections}
-    else:
-        return {"status": "error", "message": "No model selections available. Please select a model first."}
-
 @app.post("/select_model", response_model=Dict)
 async def select_model(request: PredictionRequest):
     """Select a model for a specific trading pair without starting predictions"""
@@ -1034,22 +935,23 @@ async def select_model(request: PredictionRequest):
     if not request.trading_pair:
         return {"status": "error", "message": "Trading pair is required"}
 
+    canonical = normalize_trading_pair(request.trading_pair)
     # Store model selection for future use
-    model_selections[request.trading_pair] = {
+    model_selections[canonical] = {
         'model_name': getattr(request, 'model_name', None),
         'model_type': getattr(request, 'model_type', None)
     }
+    
+    # Add the trading pair to active pairs
+    if canonical not in prediction_service_state["active_pairs"]:
+        prediction_service_state["active_pairs"].add(canonical)
 
-    # Add the trading pair to active pairs if not already there
-    if request.trading_pair not in prediction_service_state["active_pairs"]:
-        prediction_service_state["active_pairs"].add(request.trading_pair)
-
-    logger.info(f"🔑 Model selected for {request.trading_pair}: {model_selections[request.trading_pair]}")
+    logger.info(f"🔑 Model selected for {canonical}: {model_selections[canonical]}")
 
     return {
         "status": "success", 
-        "message": f"Model selected for {request.trading_pair}",
-        "model_selection": model_selections[request.trading_pair]
+        "message": f"Model selected for {canonical}",
+        "model_selection": model_selections[canonical]
     }
 
 # Alias routes to handle potential API gateway/service path prefixes in production
@@ -1139,9 +1041,10 @@ async def get_latest_prediction(trading_pair: str, model_name=None, model_type=N
     global mongodb_manager
     
     try:
+        canonical = normalize_trading_pair(trading_pair)
         # Get latest prediction from MongoDB with model filters
         latest_prediction = await mongodb_manager.get_latest_prediction(
-            trading_pair, 
+            canonical, 
             model_name=model_name, 
             model_type=model_type
         )

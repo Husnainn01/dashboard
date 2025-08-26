@@ -20,6 +20,7 @@ import lightgbm as lgb
 
 from ml_models.model_trainer import ModelTrainer as BaseModelTrainer
 from model_storage import ModelStorageManager
+from shared.pairs import to_api_asset, normalize_internal
 
 logger = logging.getLogger(__name__)
 
@@ -113,21 +114,15 @@ class ModelTrainerR2(BaseModelTrainer):
         if hasattr(self.feature_engineer, 'is_optimized_for_usd_brl'):
             self.feature_engineer.is_optimized_for_usd_brl = True
         
-        # Format trading pair to match how it's stored in MongoDB
-        formatted_pair = trading_pair
-        
-        # Handle USD/BRL(OTC) format
-        if '/' in trading_pair and '(' in trading_pair:
-            # Convert USD/BRL(OTC) to USDBRL OTC format
-            currency_pair = trading_pair.split('(')[0]  # Get USD/BRL
-            base, quote = currency_pair.split('/')      # Split into USD and BRL
-            formatted_pair = f"{base}{quote} OTC"       # USDBRL OTC
+        # Normalize: API asset for data retrieval, internal key for metadata
+        api_pair = to_api_asset(trading_pair) or trading_pair
+        internal_pair = normalize_internal(trading_pair) or trading_pair
             
-        logger.info(f"🧠 Training optimized {model_type} model for {trading_pair} (formatted as {formatted_pair})")
+        logger.info(f"🧠 Training optimized {model_type} model for {trading_pair} (api={api_pair}, internal={internal_pair})")
         
         # Train just the specified model type with increased data limit for better accuracy
         results = await self.train_models(
-            trading_pair=formatted_pair,
+            trading_pair=api_pair,
             algorithms=[model_type],
             data_limit=5000  # Increased data limit for USD/BRL(OTC)
         )
@@ -154,14 +149,18 @@ class ModelTrainerR2(BaseModelTrainer):
             Dictionary with training results for each algorithm
         """
         
-        logger.info(f"🚀 Starting optimized model training for {trading_pair}")
+        # Normalize input just for logging clarity
+        api_pair = to_api_asset(trading_pair) or trading_pair
+        internal_pair = normalize_internal(trading_pair) or trading_pair
+        logger.info(f"🚀 Starting optimized model training for {trading_pair} (api={api_pair}, internal={internal_pair})")
         
         # Ensure we're using the enhanced feature engineering for USD/BRL(OTC)
         if hasattr(self.feature_engineer, 'is_optimized_for_usd_brl'):
             self.feature_engineer.is_optimized_for_usd_brl = True
         
         # Call the base class method to train models
-        results = await super().train_models(trading_pair, algorithms, data_limit)
+        # Delegate to base with API pair for data retrieval
+        results = await super().train_models(api_pair, algorithms, data_limit)
         
         if not results:
             logger.error("❌ Base model training failed")
@@ -176,7 +175,7 @@ class ModelTrainerR2(BaseModelTrainer):
                         result['model'], 
                         result.get('scaler'),  # Get scaler if available
                         algorithm, 
-                        trading_pair, 
+                        internal_pair, 
                         result['metrics']
                     )
                     

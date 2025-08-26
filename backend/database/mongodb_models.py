@@ -36,7 +36,9 @@ class CandleData:
                 volume: float = 0,
                 is_closed: bool = True,
                 is_validated: bool = False,
-                source: str = "pyquotex"):
+                source: str = "pyquotex",
+                asset: Optional[str] = None,
+                period: Optional[int] = None):
         self.trading_pair = trading_pair
         self.timestamp = timestamp
         self.open_price = open_price
@@ -47,6 +49,9 @@ class CandleData:
         self.is_closed = is_closed
         self.is_validated = is_validated
         self.source = source
+        # Optional fields for validators/backward-compat
+        self.asset = asset or trading_pair
+        self.period = period if period is not None else 60
         
     # Property getters for backward compatibility
     @property
@@ -87,7 +92,10 @@ class CandleData:
             "volume": self.volume,
             "is_closed": self.is_closed,
             "is_validated": self.is_validated,
-            "source": self.source
+            "source": self.source,
+            # Include required fields for existing Mongo validators
+            "asset": self.asset,
+            "period": self.period
         }
         
     @classmethod
@@ -210,7 +218,22 @@ class MongoDBManager:
     async def _create_indexes(self):
         """Create indexes for collections"""
         # Candles collection indexes
-        await self.db.candles.create_index([("trading_pair", ASCENDING), ("timestamp", DESCENDING)])
+        # Ensure unique composite index on (trading_pair, timestamp) to prevent duplicates under races
+        try:
+            # Drop an existing non-unique index with the same key pattern if it exists
+            idx_info = await self.db.candles.index_information()
+            # index_information() returns a dict: name -> { 'key': [('field', direction)], 'unique': bool, ... }
+            target_keys = [("trading_pair", 1), ("timestamp", -1)]
+            for name, meta in idx_info.items():
+                if meta.get("key") == target_keys and not meta.get("unique", False):
+                    await self.db.candles.drop_index(name)
+                    break
+            # Create unique index
+            await self.db.candles.create_index([("trading_pair", ASCENDING), ("timestamp", DESCENDING)], unique=True)
+        except Exception as e:
+            logger.warning(f"⚠️ Could not enforce unique index on candles(trading_pair, timestamp): {e}")
+
+        # Auxiliary indexes
         await self.db.candles.create_index([("timestamp", DESCENDING)])
         await self.db.candles.create_index([("trading_pair", ASCENDING), ("is_validated", ASCENDING)])
         
@@ -462,72 +485,25 @@ class MongoDBManager:
         if not self.is_connected:
             await self.connect()
         
-        # Try different formats of trading pair
-        formats_to_try = [
-            trading_pair,  # Original format (e.g., "USD/BRL(OTC)")
-            trading_pair.replace("/", "").replace("(OTC)", " OTC"),  # "USDBRL OTC"
-            trading_pair.replace("/", "").replace("(OTC)", "_OTC"),  # "USDBRL_OTC"
-        ]
+        # Strict query: only use the exact provided trading_pair
+        query = {"trading_pair": trading_pair}
+        if validated_only:
+            query["is_validated"] = True
         
-        # Get all available trading pairs in the database
-        available_pairs = await self.get_available_trading_pairs()
-        logger.info(f"Available trading pairs in database: {available_pairs}")
+        # Execute query in ascending time for training
+        cursor = self.db.candles.find(query).sort("timestamp", ASCENDING).limit(limit)
+        candles = await cursor.to_list(length=limit)
         
-        # Try each format
-        for pair_format in formats_to_try:
-            # Build query
-            query = {"trading_pair": pair_format}
-            
-            if validated_only:
-                query["is_validated"] = True
-            
-            # Check if this format exists in the database
-            count = await self.db.candles.count_documents(query)
-            
-            if count > 0:
-                logger.info(f"Found {count} candles for {pair_format}")
-                
-                # Execute query
-                cursor = self.db.candles.find(query).sort("timestamp", ASCENDING).limit(limit)
-                
-                # Convert to list
-                candles = await cursor.to_list(length=limit)
-                
-                # Convert ObjectId to string
-                for candle in candles:
-                    candle["_id"] = str(candle["_id"])
-                
-                return candles
+        if not candles:
+            logger.warning(f"No candles found for trading_pair='{trading_pair}' with validated_only={validated_only}")
+            return []
         
-        # If no format matched, try to find a similar trading pair
-        for available_pair in available_pairs:
-            # Check if the available pair contains parts of the requested pair
-            if (trading_pair.replace("/", "").replace("(OTC)", "").lower() in available_pair.lower() or
-                available_pair.lower() in trading_pair.replace("/", "").replace("(OTC)", "").lower()):
-                
-                logger.info(f"Trying similar pair: {available_pair}")
-                
-                # Build query
-                query = {"trading_pair": available_pair}
-                
-                if validated_only:
-                    query["is_validated"] = True
-                
-                # Execute query
-                cursor = self.db.candles.find(query).sort("timestamp", ASCENDING).limit(limit)
-                
-                # Convert to list
-                candles = await cursor.to_list(length=limit)
-                
-                # Convert ObjectId to string
-                for candle in candles:
-                    candle["_id"] = str(candle["_id"])
-                
-                return candles
+        # Normalize ObjectId to string
+        for candle in candles:
+            candle["_id"] = str(candle["_id"])
         
-        # If no match found, return empty list
-        logger.warning(f"No candles found for {trading_pair} (tried formats: {formats_to_try})")
-        return []
+        logger.info(f"Found {len(candles)} candles for trading_pair='{trading_pair}' (strict match)")
+        return candles
     
     async def get_available_trading_pairs(self) -> List[str]:
         """

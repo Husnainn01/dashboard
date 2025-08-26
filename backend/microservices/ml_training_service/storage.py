@@ -13,6 +13,7 @@ import pickle
 import io
 from typing import Dict, Any, Optional, BinaryIO, Union, Tuple
 from pathlib import Path
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -408,6 +409,15 @@ class ModelStorageService:
     async def _list_local_models(self, trading_pair: str = None, algorithm: str = None) -> list:
         """List models in local filesystem"""
         models = []
+        # Lazy-import normalizer to avoid import issues when not needed
+        normalized_requested = None
+        if trading_pair:
+            try:
+                sys.path.append(str(Path(__file__).parent.parent.parent))
+                from shared.pairs import normalize_internal  # type: ignore
+                normalized_requested = normalize_internal(trading_pair) or trading_pair
+            except Exception:
+                normalized_requested = trading_pair
         
         # Iterate through model directories
         for model_dir in self.local_dir.iterdir():
@@ -423,13 +433,21 @@ class ModelStorageService:
             try:
                 with open(metadata_path, "r") as f:
                     metadata = json.load(f)
-                    
+
                 # Apply filters
-                if trading_pair and metadata.get("trading_pair") != trading_pair:
-                    continue
+                if normalized_requested is not None:
+                    meta_tp = metadata.get("trading_pair")
+                    try:
+                        sys.path.append(str(Path(__file__).parent.parent.parent))
+                        from shared.pairs import normalize_internal  # type: ignore
+                        meta_internal = normalize_internal(meta_tp) or meta_tp
+                    except Exception:
+                        meta_internal = meta_tp
+                    if meta_internal != normalized_requested:
+                        continue
                 if algorithm and metadata.get("algorithm") != algorithm:
                     continue
-                    
+
                 models.append(metadata)
             except Exception as e:
                 logger.warning(f"⚠️ Error loading metadata from {metadata_path}: {str(e)}")
@@ -441,6 +459,15 @@ class ModelStorageService:
     async def _list_r2_models(self, trading_pair: str = None, algorithm: str = None) -> list:
         """List models in Cloudflare R2"""
         models = []
+        # Normalize requested trading pair to internal canonical
+        normalized_requested = None
+        if trading_pair:
+            try:
+                sys.path.append(str(Path(__file__).parent.parent.parent))
+                from shared.pairs import normalize_internal  # type: ignore
+                normalized_requested = normalize_internal(trading_pair) or trading_pair
+            except Exception:
+                normalized_requested = trading_pair
         
         try:
             logger.info(f"🔍 Listing R2 models with filters - trading_pair: {trading_pair}, algorithm: {algorithm}")
@@ -482,10 +509,18 @@ class ModelStorageService:
                     logger.info(f"📋 Metadata keys: {list(metadata.keys())}")
                     logger.info(f"📋 Model trading_pair: {metadata.get('trading_pair')}, algorithm: {metadata.get('algorithm')}")
                     
-                    # Apply filters
-                    if trading_pair and metadata.get("trading_pair") != trading_pair:
-                        logger.info(f"🔍 Filtering out model: trading_pair mismatch - requested: {trading_pair}, found: {metadata.get('trading_pair')}")
-                        continue
+                    # Apply filters (normalize metadata trading_pair for robust comparison)
+                    if normalized_requested is not None:
+                        meta_tp = metadata.get("trading_pair")
+                        try:
+                            sys.path.append(str(Path(__file__).parent.parent.parent))
+                            from shared.pairs import normalize_internal  # type: ignore
+                            meta_internal = normalize_internal(meta_tp) or meta_tp
+                        except Exception:
+                            meta_internal = meta_tp
+                        if meta_internal != normalized_requested:
+                            logger.info(f"🔍 Filtering out model: trading_pair mismatch - requested: {normalized_requested}, found: {meta_internal}")
+                            continue
                     if algorithm and metadata.get("algorithm") != algorithm:
                         logger.info(f"🔍 Filtering out model: algorithm mismatch - requested: {algorithm}, found: {metadata.get('algorithm')}")
                         continue

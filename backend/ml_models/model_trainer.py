@@ -40,6 +40,7 @@ from config import MODEL_RETRAIN_INTERVAL, MIN_TRAINING_SAMPLES, PREDICTION_CONF
 # Import storage service
 sys.path.append(str(Path(__file__).parent.parent / "microservices" / "ml_training_service"))
 from storage import ModelStorageService
+from shared.pairs import to_api_asset, normalize_internal
 
 logger = logging.getLogger(__name__)
 
@@ -66,14 +67,9 @@ class ModelTrainer:
             }
         )
         
-        # Flag to control storage behavior
-        self.use_cloud_storage = os.environ.get("USE_CLOUD_STORAGE", "true").lower() == "true"
-        
-        if self.use_cloud_storage:
-            logger.info("☁️ ModelTrainer configured to use cloud storage (R2)")
-        else:
-            logger.info("📁 ModelTrainer configured to use local storage")
-        self.models_dir.mkdir(exist_ok=True)
+        # Enforce cloud-only storage
+        self.use_cloud_storage = True
+        logger.info("☁️ ModelTrainer enforced to use cloud storage (R2) only - no local fallback")
         
         # Available algorithms
         self.algorithms = {
@@ -105,27 +101,14 @@ class ModelTrainer:
         Returns:
             Dictionary with model results or None if training failed
         """
-        # Format trading pair to match how it's stored in MongoDB
-        formatted_pair = trading_pair
-        
-        # Handle USD/BRL(OTC) format
-        if '/' in trading_pair and '(' in trading_pair:
-            # Convert USD/BRL(OTC) to EURUSD OTC format
-            currency_pair = trading_pair.split('(')[0]  # Get USD/BRL
-            base, quote = currency_pair.split('/')      # Split into USD and BRL
-            
-            # MongoDB format is "EURUSD OTC" (not USDBRL)
-            # For USD/BRL, we need to check both USDBRL and BRLUSD formats
-            if base == "USD":
-                formatted_pair = f"{base}{quote} OTC"  # USDBRL OTC
-            else:
-                formatted_pair = f"{base}{quote} OTC"  # EURUSD OTC
-            
-        logger.info(f"🧠 Training {model_type} model for {trading_pair} (formatted as {formatted_pair})")
+        # Normalize: API asset for data retrieval, internal key for metadata
+        api_pair = to_api_asset(trading_pair) or trading_pair
+        internal_pair = normalize_internal(trading_pair) or trading_pair
+        logger.info(f"🧠 Training {model_type} model for {trading_pair} (api={api_pair}, internal={internal_pair})")
         
         # Train just the specified model type
         results = await self.train_models(
-            trading_pair=formatted_pair,
+            trading_pair=api_pair,
             algorithms=[model_type],
             data_limit=2000
         )
@@ -137,7 +120,7 @@ class ModelTrainer:
             logger.error(f"❌ Failed to train {model_type} for {trading_pair}")
             return None
     
-    async def train_models(self, trading_pair: str = "EURUSD OTC", 
+    async def train_models(self, trading_pair: str = "BRLUSD_otc", 
                           algorithms: List[str] = None, 
                           data_limit: int = 2000) -> Dict[str, Dict]:
         """
@@ -152,12 +135,15 @@ class ModelTrainer:
             Dictionary with training results for each algorithm
         """
         
-        logger.info(f"🚀 Starting model training for {trading_pair}")
+        # Normalize input for consistent usage
+        api_pair = to_api_asset(trading_pair) or trading_pair
+        internal_pair = normalize_internal(trading_pair) or trading_pair
+        logger.info(f"🚀 Starting model training for {trading_pair} (api={api_pair}, internal={internal_pair})")
         
         # Prepare training data
         logger.info("📊 Preparing training data...")
         features_df, targets_df = await self.feature_engineer.prepare_training_data(
-            trading_pair=trading_pair, limit=data_limit
+            trading_pair=api_pair, limit=data_limit
         )
         
         if features_df.empty or targets_df.empty:
@@ -201,13 +187,13 @@ class ModelTrainer:
                 # Train model
                 model_result = await self._train_single_model(
                     algorithm, X_train_scaled, X_test_scaled, y_train, y_test,
-                    features_df.columns.tolist(), trading_pair
+                    features_df.columns.tolist(), internal_pair
                 )
                 
                 # Save model and scaler
                 await self._save_model(
                     model_result['model'], scaler, algorithm, 
-                    trading_pair, model_result['metrics']
+                    internal_pair, model_result['metrics']
                 )
                 
                 results[algorithm] = model_result
@@ -218,7 +204,7 @@ class ModelTrainer:
                 results[algorithm] = {'error': str(e)}
         
         # Generate training report
-        report = await self._generate_training_report(results, trading_pair)
+        report = await self._generate_training_report(results, internal_pair)
         
         logger.info(" Model training completed!")
         return results
@@ -232,40 +218,21 @@ class ModelTrainer:
         """
         models: List[Dict[str, Any]] = []
         try:
-            # Prefer local metadata for speed and simplicity
-            if self.models_dir.exists():
-                # Each model is typically stored under trained_models/<model_dir>/metadata.json
-                for model_dir in sorted(self.models_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
-                    if not model_dir.is_dir():
-                        continue
-                    metadata_path = model_dir / "metadata.json"
-                    entry: Dict[str, Any] = {"name": model_dir.name}
-                    if metadata_path.exists():
-                        try:
-                            with open(metadata_path, 'r') as f:
-                                metadata = json.load(f)
-                                entry.update(metadata)
-                        except Exception as e:
-                            logger.warning(f"⚠️ Could not read metadata for {model_dir.name}: {e}")
-                    models.append(entry)
-                    if len(models) >= limit:
-                        break
-            # Optionally include cloud listing summary (best-effort)
-            if self.use_cloud_storage and hasattr(self, "storage_service") and self.storage_service:
-                try:
-                    r2_client = getattr(self.storage_service, "r2_client", None)
-                    bucket = getattr(self.storage_service, "bucket_name", os.environ.get("R2_BUCKET_NAME", "quotex"))
-                    if r2_client:
-                        resp = r2_client.list_objects_v2(Bucket=bucket, Prefix="models/")
-                        contents = resp.get("Contents", [])
-                        models.append({
-                            "cloud_objects": len(contents),
-                            "cloud_prefix": "models/"
-                        })
-                except Exception as e:
-                    logger.warning(f"⚠️ Could not list models from cloud storage: {e}")
+            # Cloud listing only
+            r2_client = getattr(self.storage_service, "r2_client", None)
+            bucket = getattr(self.storage_service, "bucket_name", os.environ.get("R2_BUCKET_NAME", "quotex"))
+            if r2_client:
+                resp = r2_client.list_objects_v2(Bucket=bucket, Prefix="models/")
+                contents = resp.get("Contents", [])
+                # Return minimal entries with object keys
+                for obj in sorted(contents, key=lambda x: x.get("LastModified", datetime.utcnow()), reverse=True)[:limit]:
+                    models.append({
+                        "cloud_key": obj.get("Key"),
+                        "size": obj.get("Size"),
+                        "last_modified": obj.get("LastModified").isoformat() if obj.get("LastModified") else None
+                    })
         except Exception as e:
-            logger.error(f"❌ Error listing trained models: {e}")
+            logger.error(f"❌ Error listing models from cloud storage: {e}")
         return models
     
     async def _train_single_model(self, algorithm: str, X_train: np.ndarray, X_test: np.ndarray,
@@ -384,9 +351,11 @@ class ModelTrainer:
                          trading_pair: str, metrics: Dict[str, float]) -> str:
         """Save trained model and metadata"""
         
+        # Normalize to internal canonical key for naming/metadata
+        internal_pair = normalize_internal(trading_pair) or trading_pair
         # Simplified model naming convention: algorithm_tradingpair_date
         date = datetime.utcnow().strftime("%Y-%m-%d")
-        model_name = f"{algorithm}_{trading_pair.replace('/', '_').replace(' ', '_')}_{date}"
+        model_name = f"{algorithm}_{internal_pair}_{date}"
         
         # Prepare model data (combine model and scaler)
         model_data = {
@@ -397,47 +366,23 @@ class ModelTrainer:
         # Prepare metadata
         metadata = {
             'algorithm': algorithm,
-            'trading_pair': trading_pair,
+            'trading_pair': internal_pair,
             'trained_at': datetime.utcnow().isoformat(),
             'metrics': metrics,
             'version': '1.0.0'
         }
         
-        if self.use_cloud_storage:
-            # Save to cloud storage (R2)
-            try:
-                result = await self.storage_service.save_model(
-                    model_data=model_data,
-                    metadata=metadata,
-                    model_id=model_name
-                )
-                logger.info(f"☁️ Model saved to cloud storage: {model_name}")
-            except Exception as e:
-                logger.error(f"❌ Error saving model to cloud storage: {str(e)}")
-                raise
-        else:
-            # Legacy local storage path (only used if cloud storage is disabled)
-            model_dir = self.models_dir / model_name
-            model_dir.mkdir(exist_ok=True)
-            
-            # Save model
-            model_path = model_dir / "model.pkl"
-            joblib.dump(model, model_path)
-            
-            # Save scaler
-            scaler_path = model_dir / "scaler.pkl"
-            joblib.dump(scaler, scaler_path)
-            
-            # Update metadata with local paths
-            metadata['model_path'] = str(model_path)
-            metadata['scaler_path'] = str(scaler_path)
-            
-            # Save metadata
-            metadata_path = model_dir / "metadata.json"
-            with open(metadata_path, 'w') as f:
-                json.dump(metadata, f, indent=2)
-            
-            logger.info(f"💾 Model saved locally: {model_name}")
+        # Save to cloud storage (R2) only
+        try:
+            result = await self.storage_service.save_model(
+                model_data=model_data,
+                metadata=metadata,
+                model_id=model_name
+            )
+            logger.info(f"☁️ Model saved to cloud storage: {model_name}")
+        except Exception as e:
+            logger.error(f"❌ Error saving model to cloud storage: {str(e)}")
+            raise
         
         return model_name
     
@@ -446,10 +391,12 @@ class ModelTrainer:
         """Generate comprehensive training report"""
         
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        report_id = f"training_report_{trading_pair.replace(' ', '_')}_{timestamp}"
+        # Ensure internal canonical is used
+        internal_pair = normalize_internal(trading_pair) or trading_pair
+        report_id = f"training_report_{internal_pair}_{timestamp}"
         
         report = {
-            'trading_pair': trading_pair,
+            'trading_pair': internal_pair,
             'trained_at': datetime.utcnow().isoformat(),
             'models_trained': len(results),
             'best_model': None,
@@ -499,11 +446,12 @@ class ModelTrainer:
     async def check_model_exists(self, trading_pair: str, model_type: str = 'xgboost') -> bool:
         """Check if a trained model exists for a trading pair and model type"""
         try:
+            internal_pair = normalize_internal(trading_pair) or trading_pair
             if self.use_cloud_storage:
                 # Check in cloud storage
                 try:
                     # Get list of models from cloud storage
-                    model_prefix = f"models/{model_type}_{trading_pair.replace('/', '_').replace('(', '_').replace(')', '_')}"
+                    model_prefix = f"models/{model_type}_{internal_pair}"
                     
                     # List objects with the prefix
                     response = self.storage_service.r2_client.list_objects_v2(
@@ -517,9 +465,9 @@ class ModelTrainer:
                     if exists:
                         model_key = response['Contents'][0]['Key']
                         model_name = model_key.split('/')[1]  # Extract model name from key
-                        logger.info(f"☁️ Found model in cloud storage for {trading_pair} ({model_type}): {model_name}")
+                        logger.info(f"☁️ Found model in cloud storage for {internal_pair} ({model_type}): {model_name}")
                     else:
-                        logger.warning(f"⚠️ No model found in cloud storage for {trading_pair} ({model_type})")
+                        logger.warning(f"⚠️ No model found in cloud storage for {internal_pair} ({model_type})")
                         
                     return exists
                     
@@ -528,7 +476,7 @@ class ModelTrainer:
                     return False
             else:
                 # Legacy local storage check
-                model_pattern = f"{model_type}_{trading_pair.replace('/', '_').replace('(', '_').replace(')', '_')}*"
+                model_pattern = f"{model_type}_{internal_pair}*"
                 
                 # List all directories in the models directory
                 model_dirs = list(self.models_dir.glob(model_pattern))
@@ -537,9 +485,9 @@ class ModelTrainer:
                 exists = len(model_dirs) > 0
                 
                 if exists:
-                    logger.info(f"✅ Found local model for {trading_pair} ({model_type}): {model_dirs[0].name}")
+                    logger.info(f"✅ Found local model for {internal_pair} ({model_type}): {model_dirs[0].name}")
                 else:
-                    logger.warning(f"⚠️ No local model found for {trading_pair} ({model_type})")
+                    logger.warning(f"⚠️ No local model found for {internal_pair} ({model_type})")
                     
                 return exists
                 
@@ -550,118 +498,43 @@ class ModelTrainer:
     async def load_model(self, model_name: str) -> Tuple[Any, Any, Dict]:
         """Load a trained model with its scaler and metadata"""
         try:
-            if self.use_cloud_storage:
-                # Load from cloud storage
-                try:
-                    # Use storage service to load model
-                    result = await self.storage_service.load_model(model_name)
-                    
-                    if not result:
-                        logger.error(f"❌ Model not found in cloud storage: {model_name}")
-                        return None, None, {}
-                        
-                    model_data, metadata = result
-                    
-                    # Extract model and scaler from model_data
-                    model = model_data.get('model')
-                    scaler = model_data.get('scaler')
-                    
-                    # Ensure metadata is a dictionary
-                    if metadata is None:
-                        logger.warning(f"⚠️ Model {model_name} has no metadata, creating default metadata")
-                        metadata = {
-                            'model_name': model_name,
-                            'algorithm': 'unknown',
-                            'trading_pair': 'unknown',
-                            'loaded_at': datetime.utcnow().isoformat(),
-                            'metrics': {'accuracy': 0.5}
-                        }
-                    elif not isinstance(metadata, dict):
-                        logger.warning(f"⚠️ Model {model_name} has invalid metadata format, converting to dict")
-                        metadata = {
-                            'model_name': model_name,
-                            'algorithm': 'unknown',
-                            'trading_pair': 'unknown',
-                            'loaded_at': datetime.utcnow().isoformat(),
-                            'metrics': {'accuracy': 0.5}
-                        }
-                    
-                    # Ensure essential fields exist
-                    metadata.setdefault('model_name', model_name)
-                    metadata.setdefault('loaded_at', datetime.utcnow().isoformat())
-                    metadata.setdefault('metrics', {'accuracy': 0.5})
-                    
-                    logger.info(f"☁️ Model loaded from cloud storage: {model_name}")
-                    
-                    return model, scaler, metadata
-                    
-                except Exception as e:
-                    logger.error(f"❌ Error loading model from cloud storage {model_name}: {str(e)}")
-                    # Don't return None, continue to try local storage
-            
-            # Legacy local storage path or fallback from cloud storage error
-            model_dir = self.models_dir / model_name
-            
-            if not model_dir.exists():
-                logger.error(f"❌ Model directory not found: {model_dir}")
-                return None, None, {}
-            
-            # Load model
-            model_path = model_dir / "model.pkl"
-            if not model_path.exists():
-                logger.error(f"❌ Model file not found: {model_path}")
-                return None, None, {}
+            # Load from cloud storage only
+            try:
+                result = await self.storage_service.load_model(model_name)
                 
-            model = joblib.load(model_path)
-            
-            # Load scaler
-            scaler_path = model_dir / "scaler.pkl"
-            if not scaler_path.exists():
-                logger.warning(f"⚠️ Scaler file not found: {scaler_path}")
-                scaler = None
-            else:
-                scaler = joblib.load(scaler_path)
-            
-            # Load metadata
-            metadata_path = model_dir / "metadata.json"
-            if not metadata_path.exists():
-                logger.warning(f"⚠️ Metadata file not found: {metadata_path}, creating default")
-                metadata = {
-                    'model_name': model_name,
-                    'algorithm': model_name.split('_')[0] if '_' in model_name else 'unknown',
-                    'trading_pair': model_name.split('_')[1] if '_' in model_name and len(model_name.split('_')) > 1 else 'unknown',
-                    'loaded_at': datetime.utcnow().isoformat(),
-                    'metrics': {'accuracy': 0.5}
-                }
-            else:
-                try:
-                    with open(metadata_path, 'r') as f:
-                        metadata = json.load(f)
-                    # Ensure metadata is properly formatted
-                    if not isinstance(metadata, dict):
-                        logger.warning(f"⚠️ Metadata format invalid, creating default")
-                        metadata = {
-                            'model_name': model_name,
-                            'loaded_at': datetime.utcnow().isoformat(),
-                            'metrics': {'accuracy': 0.5}
-                        }
-                except Exception as e:
-                    logger.error(f"❌ Error reading metadata file: {str(e)}")
+                if not result:
+                    logger.error(f"❌ Model not found in cloud storage: {model_name}")
+                    return None, None, {}
+                    
+                model_data, metadata = result
+                
+                # Extract model and scaler from model_data
+                model = model_data.get('model')
+                scaler = model_data.get('scaler')
+                
+                # Ensure metadata is a dictionary
+                if metadata is None or not isinstance(metadata, dict):
+                    logger.warning(f"⚠️ Model {model_name} has invalid or missing metadata, creating default metadata")
                     metadata = {
                         'model_name': model_name,
+                        'algorithm': 'unknown',
+                        'trading_pair': 'unknown',
                         'loaded_at': datetime.utcnow().isoformat(),
                         'metrics': {'accuracy': 0.5}
                     }
-            
-            # Ensure essential fields exist
-            metadata.setdefault('model_name', model_name)
-            metadata.setdefault('loaded_at', datetime.utcnow().isoformat())
-            metadata.setdefault('metrics', {'accuracy': 0.5})
-            
-            logger.info(f"📁 Model loaded from local storage: {model_name}")
-            
-            return model, scaler, metadata
                 
+                # Ensure essential fields exist
+                metadata.setdefault('model_name', model_name)
+                metadata.setdefault('loaded_at', datetime.utcnow().isoformat())
+                metadata.setdefault('metrics', {'accuracy': 0.5})
+                
+                logger.info(f"☁️ Model loaded from cloud storage: {model_name}")
+                return model, scaler, metadata
+                
+            except Exception as e:
+                logger.error(f"❌ Error loading model from cloud storage {model_name}: {str(e)}")
+                return None, None, {}
+        
         except Exception as e:
             logger.error(f"❌ Error loading model {model_name}: {str(e)}")
             return None, None, {}
@@ -673,8 +546,9 @@ class ModelTrainer:
         logger.info(f"🔧 Starting hyperparameter tuning for {algorithm}")
         
         # Prepare data
+        api_pair = to_api_asset(trading_pair) or trading_pair
         features_df, targets_df = await self.feature_engineer.prepare_training_data(
-            trading_pair=trading_pair, limit=data_limit
+            trading_pair=api_pair, limit=data_limit
         )
         
         if features_df.empty:

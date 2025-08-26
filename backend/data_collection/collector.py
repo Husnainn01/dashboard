@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 from database.mongodb_models import MongoDBManager, CandleData
+from shared.pairs import to_api_asset
 
 class DataCollector:
     """
@@ -232,60 +233,89 @@ class DataCollector:
             
             self.logger.info(f"📊 Collecting candle data for {asset}...")
             
-            # Get candles from PyQuotex API (following the example pattern)
-            offset = 3600  # 1 hour of data in seconds
-            period = self.timeframe  # 60 seconds
+            # Setup retrieval window
+            offset = 3600  # seconds
+            period = self.timeframe
             end_from_time = time.time()
-            
-            # Try with the original asset name
+
+            # Resolve asset to a valid/available asset (adds _otc or picks open variant)
             candles_data = None
+            # The requested/display name we will store/broadcast
+            requested_name = asset
             asset_to_use = asset
-            
+            source_symbol_used = None
+
+            # Normalize requested_name to API style using shared utility
             try:
-                self.logger.info(f"📊 Requesting candles for {asset_to_use} (period: {period}, offset: {offset})")
-                
-                # Add robust error handling around PyQuotex API calls
+                requested_name = to_api_asset(requested_name) or requested_name
+            except Exception:
+                pass
+
+            try:
+                # Ask API to find the correct/open asset
                 try:
-                    candles_data = await self.client.get_candles(asset_to_use, end_from_time, offset, period)
-                except json.JSONDecodeError as json_err:
-                    self.logger.error(f"❌ JSON parsing error for {asset_to_use}: {str(json_err)}")
-                    self.logger.info(f"🔄 Reconnecting to PyQuotex after JSON error...")
-                    # Try to reconnect and retry once
-                    await self.connect()
-                    await asyncio.sleep(2)  # Short delay before retry
-                    candles_data = await self.client.get_candles(asset_to_use, end_from_time, offset, period)
-                except Exception as api_err:
-                    self.logger.error(f"❌ PyQuotex API error for {asset_to_use}: {str(api_err)}")
-                    candles_data = None
-                
-                # If no data and asset doesn't have _otc suffix, try with it
-                if (not candles_data or len(candles_data) == 0) and "_otc" not in asset_to_use.lower():
-                    asset_to_use = f"{asset}_otc"
-                    self.logger.info(f"📊 Trying with OTC suffix: {asset_to_use}")
+                    asset_name, asset_data = await self.client.get_available_asset(asset_to_use, force_open=True)
+                    if asset_name:
+                        asset_to_use = asset_name
+                        self.logger.info(f"📊 Resolved asset: {asset} -> {asset_to_use}")
+                except Exception as resolve_err:
+                    self.logger.warning(f"⚠️ Could not resolve asset via get_available_asset: {resolve_err}")
+                    # Best-effort: ensure _otc suffix if missing
+                    if "_otc" not in asset_to_use.lower():
+                        asset_to_use = f"{asset_to_use}_otc"
+
+                async def fetch_candles(symbol: str):
+                    self.logger.info(f"📊 Requesting candles for {symbol} (period: {period}, offset: {offset})")
                     try:
-                        candles_data = await self.client.get_candles(asset_to_use, end_from_time, offset, period)
-                    except (json.JSONDecodeError, Exception) as err:
-                        self.logger.error(f"❌ Error getting candles for {asset_to_use}: {str(err)}")
-                        candles_data = None
-                    
-                # Special case for USD/BRL - try BRLUSD_otc if USDBRL_otc doesn't work
-                if (not candles_data or len(candles_data) == 0) and asset.upper() == "USDBRL":
-                    asset_to_use = "BRLUSD_otc"
-                    self.logger.info(f"📊 Trying inverse pair: {asset_to_use}")
-                    try:
-                        candles_data = await self.client.get_candles(asset_to_use, end_from_time, offset, period)
-                    except (json.JSONDecodeError, Exception) as err:
-                        self.logger.error(f"❌ Error getting candles for {asset_to_use}: {str(err)}")
-                        candles_data = None
-                
+                        data = await self.client.get_candles(symbol, end_from_time, offset, period)
+                        return data
+                    except json.JSONDecodeError as json_err:
+                        self.logger.error(f"❌ JSON parsing error for {symbol}: {str(json_err)}")
+                        self.logger.info("🔄 Reconnecting to PyQuotex after JSON error...")
+                        await self.connect()
+                        await asyncio.sleep(2)
+                        return await self.client.get_candles(symbol, end_from_time, offset, period)
+
+                # First attempt: resolved asset
+                candles_data = await fetch_candles(asset_to_use)
+                if candles_data:
+                    source_symbol_used = asset_to_use
+
+                # Fallback: try inverted asset if empty
                 if not candles_data:
-                    self.logger.warning(f"⚠️ No candle data received for {asset_to_use} - returned None")
-                    return None
-                elif len(candles_data) == 0:
-                    self.logger.warning(f"⚠️ Empty candle data for {asset_to_use} - returned empty list")
+                    self.logger.warning(f"⚠️ No candle data received for {asset_to_use} - trying inverted asset fallback")
+
+                    def invert_symbol(sym: str) -> str:
+                        s = sym.replace('(OTC)', '').replace('/', '')
+                        suffix = ''
+                        if s.lower().endswith('_otc'):
+                            s = s[:-4]
+                            suffix = '_otc'
+                        # Expect 6-letter forex like USDBRL
+                        if len(s) == 6:
+                            a, b = s[:3], s[3:]
+                            return f"{b}{a}{suffix}"
+                        return sym  # give up
+
+                    inverted = invert_symbol(asset_to_use)
+                    if inverted != asset_to_use:
+                        # Try resolving the inverted via API too
+                        try:
+                            inv_name, _ = await self.client.get_available_asset(inverted, force_open=True)
+                            if inv_name:
+                                inverted = inv_name
+                        except Exception as inv_err:
+                            self.logger.warning(f"⚠️ Could not resolve inverted asset {inverted}: {inv_err}")
+                        self.logger.info(f"🔁 Fallback requesting inverted asset: {inverted}")
+                        candles_data = await fetch_candles(inverted)
+                        if candles_data:
+                            source_symbol_used = inverted
+
+                if not candles_data:
+                    self.logger.warning(f"⚠️ No candle data received for either primary or fallback symbols")
                     return None
                 else:
-                    self.logger.info(f"✅ Received {len(candles_data)} candles for {asset_to_use}")
+                    self.logger.info(f"✅ Received {len(candles_data)} candles")
             except Exception as e:
                 self.logger.error(f"❌ Error getting candles for {asset_to_use}: {str(e)}")
                 import traceback
@@ -306,31 +336,9 @@ class DataCollector:
                     self.logger.warning(f"⚠️ Could not process candle data for {asset}")
                     return None
             
-            # Create CandleData object with the new format: USD/BRL(OTC)
-            # Convert USDBRL to USD/BRL(OTC)
-            formatted_pair = ""
-            
-            # Special case for BRLUSD_otc (inverse of USDBRL)
-            if asset_to_use.upper() == "BRLUSD_OTC":
-                formatted_pair = "USD/BRL(OTC)"
-                # For inverse pair, we need to invert the prices
-                latest_candle['open'] = 1 / float(latest_candle.get('open', 1))
-                latest_candle['high'] = 1 / float(latest_candle.get('low', 1))  # Note: high becomes low when inverted
-                latest_candle['low'] = 1 / float(latest_candle.get('high', 1))  # Note: low becomes high when inverted
-                latest_candle['close'] = 1 / float(latest_candle.get('close', 1))
-                self.logger.info(f"📊 Inverted BRLUSD_otc prices for USD/BRL(OTC)")
-            elif len(asset) == 6:  # Standard pairs like USDBRL
-                formatted_pair = f"{asset[:3]}/{asset[3:]}(OTC)"
-            else:
-                # Handle other lengths if needed
-                # Strip _otc suffix if present
-                clean_asset = asset_to_use.replace("_otc", "")
-                if len(clean_asset) == 6:
-                    formatted_pair = f"{clean_asset[:3]}/{clean_asset[3:]}(OTC)"
-                else:
-                    formatted_pair = f"{asset}(OTC)"
-                    self.logger.warning(f"⚠️ Unusual asset length: {asset}, formatted as {formatted_pair}")
-            
+            # Build CandleData using the requested name normalized to API style (e.g., 'BRLUSD_otc')
+            formatted_pair = requested_name
+
             candle = CandleData(
                 timestamp=datetime.fromtimestamp(latest_candle.get('time', time.time())),
                 trading_pair=formatted_pair,
@@ -341,10 +349,12 @@ class DataCollector:
                 volume=0,  # Default volume
                 is_closed=True,
                 is_validated=False,
-                source='pyquotex_api'
+                source='pyquotex_api',
+                asset=source_symbol_used or asset_to_use,
+                period=period
             )
             
-            self.logger.info(f"✅ Collected {asset}: {candle.direction} candle, change: {candle.change:.5f}")
+            self.logger.info(f"✅ Collected {formatted_pair}: {candle.direction} candle, change: {candle.change:.5f}")
             return candle
             
         except Exception as e:
@@ -380,6 +390,122 @@ class DataCollector:
         except Exception as e:
             self.logger.error(f"❌ Error getting real-time data for {asset}: {str(e)}")
             return None
+    
+    async def get_historical_candles(self, asset: str, days: int = 1, timeframe: int = 60, end_from_time: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieve historical candles for an asset by chunking calls to client.get_candles.
+        Returns a list of raw candle dicts as provided by the API.
+        """
+        try:
+            if not self.is_connected:
+                self.logger.error("❌ Not connected to PyQuotex")
+                return []
+            
+            # Normalize to API-style symbol using shared utility
+            symbol = to_api_asset(asset) or asset
+            
+            # Try to resolve to an open/available asset
+            try:
+                resolved, _ = await self.client.get_available_asset(symbol, force_open=True)
+                if resolved:
+                    symbol = resolved
+            except Exception as e:
+                self.logger.warning(f"⚠️ Could not resolve historical symbol '{symbol}': {e}")
+            
+            total_seconds = max(1, int(days) * 86400)
+            chunk_seconds = 21600  # 6 hours per request to avoid huge payloads
+            # Allow callers to specify an end timestamp to walk back from
+            end_from_time = int(end_from_time) if end_from_time is not None else int(time.time())
+            collected: List[Dict[str, Any]] = []
+            covered = 0
+            
+            self.logger.info(f"📚 Fetching ~{days} day(s) of historical data for {symbol} at {timeframe}s timeframe")
+            while covered < total_seconds:
+                offset = min(chunk_seconds, total_seconds - covered)
+                try:
+                    self.logger.info(f"📚 Historical chunk: symbol={symbol} period={timeframe}s offset={offset}s end={end_from_time}")
+                    data = await self.client.get_candles(symbol, end_from_time, offset, timeframe)
+                    if data:
+                        collected.extend(data)
+                    end_from_time -= offset
+                    covered += offset
+                    await asyncio.sleep(0.2)
+                except json.JSONDecodeError as je:
+                    self.logger.warning(f"⚠️ JSON decode error on historical chunk: {je}. Reconnecting and retrying chunk once...")
+                    await self.connect()
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    self.logger.error(f"❌ Error fetching historical chunk: {e}")
+                    break
+            
+            # De-duplicate and sort by time
+            unique = {}
+            for c in collected:
+                t = c.get('time') or c.get('t')
+                if t is not None:
+                    unique[int(t)] = c
+            ordered = [unique[k] for k in sorted(unique.keys())]
+            self.logger.info(f"📚 Historical fetch complete: {len(ordered)} candles")
+            return ordered
+        except Exception as e:
+            self.logger.error(f"❌ Error in get_historical_candles: {e}")
+            return []
+
+    async def process_historical_candles(self, candles: List[Dict[str, Any]], base_pair: str) -> int:
+        """
+        Convert and store historical candles as CandleData.
+        base_pair can be human (USD/BRL(OTC)) or API style (USDBRL_otc/BRLUSD_otc).
+        Returns number of candles saved.
+        """
+        try:
+            if not candles:
+                return 0
+            # Normalize trading pair label for storage using shared utility
+            requested_name = to_api_asset(base_pair) or base_pair
+            
+            saved = 0
+            period = self.timeframe
+            for raw in candles:
+                ts = raw.get('time') or raw.get('t')
+                if ts is None:
+                    continue
+                open_v = raw.get('open', raw.get('o'))
+                close_v = raw.get('close', raw.get('c'))
+                high_v = raw.get('high', raw.get('max', raw.get('h')))
+                low_v = raw.get('low', raw.get('min', raw.get('l')))
+                if open_v is None or close_v is None or high_v is None or low_v is None:
+                    continue
+                candle = CandleData(
+                    timestamp=datetime.fromtimestamp(int(ts)),
+                    trading_pair=requested_name,
+                    open_price=float(open_v),
+                    high_price=float(high_v),
+                    low_price=float(low_v),
+                    close_price=float(close_v),
+                    volume=0,
+                    is_closed=True,
+                    is_validated=False,
+                    source='pyquotex_api',
+                    asset=requested_name,
+                    period=period
+                )
+                try:
+                    # Skip if already exists to reduce unnecessary writes
+                    existing = await self.db.db.candles.find_one({
+                        "trading_pair": candle.trading_pair,
+                        "timestamp": candle.timestamp
+                    })
+                    if existing:
+                        continue
+                    await self.db.save_candle(candle)
+                    saved += 1
+                except Exception as se:
+                    self.logger.warning(f"⚠️ Failed to save historical candle @ {ts}: {se}")
+            self.logger.info(f"💾 Saved {saved} historical candles for {requested_name}")
+            return saved
+        except Exception as e:
+            self.logger.error(f"❌ Error processing historical candles: {e}")
+            return 0
     
     async def collect_all_assets(self) -> List[CandleData]:
         """

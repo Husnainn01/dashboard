@@ -26,7 +26,11 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from database.mongodb_models import MongoDBManager
 from ml_models.model_trainer import ModelTrainer
 from ml_models.feature_engineering import FeatureEngineer
+from ml_models.xgboost_trainer import XGBoostTrainer
+from ml_models.lightgbm_trainer import LightGBMTrainer
+from ml_models.random_forest_trainer import RandomForestTrainer
 from config import DEFAULT_TRADING_PAIRS
+from shared.pairs import normalize_internal, to_api_asset
 
 # Import storage and data retention services
 import os
@@ -67,6 +71,7 @@ data_retention_service = None
 training_queue = asyncio.Queue()
 training_jobs = {}
 is_training_worker_running = False
+trainer_helpers = {}
 
 # Pydantic models
 class TrainingRequest(BaseModel):
@@ -109,6 +114,7 @@ async def initialize_service():
     """Initialize the ML training service"""
     global mongodb_manager, model_trainer, feature_engineer
     global model_storage_manager, data_retention_service, training_queue
+    global trainer_helpers
     
     logger.info("🚀 Initializing ML Training Service...")
     
@@ -141,6 +147,18 @@ async def initialize_service():
     
     # Initialize model trainer
     model_trainer = ModelTrainer(mongodb_manager)
+    
+    # Initialize specialized trainer helpers
+    try:
+        trainer_helpers = {
+            "xgboost": XGBoostTrainer(mongodb_manager),
+            "lightgbm": LightGBMTrainer(mongodb_manager),
+            "random_forest": RandomForestTrainer(mongodb_manager),
+        }
+        logger.info("✅ Specialized trainer helpers initialized: xgboost, lightgbm, random_forest")
+    except Exception as e:
+        logger.error(f"❌ Error initializing trainer helpers: {str(e)}")
+        trainer_helpers = {}
     
     # Initialize model storage manager
     model_storage_manager = ModelStorageManager()
@@ -199,12 +217,18 @@ async def run_training_worker():
             logger.info(f"🧠 Training model for {job['trading_pair']} ({job_id})")
             
             try:
-                # Train model
-                result = await model_trainer.train_model(
-                    trading_pair=job["trading_pair"],
-                    model_type=job["model_type"]
-                    # data_limit parameter is not supported by the ModelTrainer.train_model method
-                )
+                # Dispatch to specialized trainer helper if available, else fallback to ModelTrainer
+                model_type = job["model_type"]
+                helper = trainer_helpers.get(model_type)
+                if helper:
+                    result = await helper.train_model(
+                        trading_pair=job["trading_pair"]
+                    )
+                else:
+                    result = await model_trainer.train_model(
+                        trading_pair=job["trading_pair"],
+                        model_type=model_type
+                    )
                 
                 # Update job with result
                 job["status"] = "completed"
@@ -212,7 +236,8 @@ async def run_training_worker():
                 job["result"] = result
                 
                 # Store model in cloud storage if configured
-                if STORAGE_CONFIG.get("type") == "r2" and result and "model" in result:
+                # If specialized helper already saved to cloud (detected via 'model_info'), skip duplicate save
+                if STORAGE_CONFIG.get("type") == "r2" and result and "model" in result and "model_info" not in result:
                     try:
                         # Extract metadata from result
                         metadata = {
@@ -308,12 +333,7 @@ async def get_status():
         status = job["status"]
         job_counts[status] = job_counts.get(status, 0) + 1
     
-    # Get latest models
-    models = []
-    if model_trainer:
-        models = model_trainer.list_trained_models()
-    
-    # Get cloud models if available
+    # Get cloud models only
     cloud_models = []
     if model_storage_manager:
         try:
@@ -334,10 +354,7 @@ async def get_status():
         "active_jobs": job_counts.get("processing", 0),
         "total_jobs": len(training_jobs),
         "job_counts": job_counts,
-        "models_count": {
-            "local": len(models),
-            "cloud": len(cloud_models)
-        },
+        "models_count": {"cloud": len(cloud_models)},
         "auto_training": {
             "enabled": AUTO_TRAINING["enabled"],
             "interval_hours": AUTO_TRAINING["schedule_interval_hours"]
@@ -366,10 +383,7 @@ async def get_models():
     if not model_trainer:
         raise HTTPException(status_code=503, detail="ML service not initialized")
     
-    # Get models from both local and cloud storage
-    local_models = model_trainer.list_trained_models()
-    
-    # Get models from cloud storage if configured
+    # Get models from cloud storage only
     cloud_models = []
     if model_storage_manager:
         try:
@@ -378,9 +392,7 @@ async def get_models():
             logger.error(f"❌ Error listing models from cloud storage: {str(e)}")
     
     return {
-        "local_models": local_models,
         "cloud_models": cloud_models,
-        "local_count": len(local_models),
         "cloud_count": len(cloud_models)
     }
 
@@ -390,36 +402,19 @@ async def get_models_for_pair(trading_pair: str = PathParam(...)):
     global model_trainer, model_storage_manager
     
     logger.info(f"🔍 Received request for models with trading_pair: '{trading_pair}'")
+    # Normalize to internal canonical for model metadata matching
+    canonical_pair = normalize_internal(trading_pair)
     
     if not model_trainer:
         logger.error("❌ ML service not initialized")
         raise HTTPException(status_code=503, detail="ML service not initialized")
     
-    # Get local models
-    logger.info("📂 Fetching local models")
-    local_models = model_trainer.list_trained_models()
-    logger.info(f"📊 Found {len(local_models)} total local models before filtering")
-    
-    # Some entries may not have full metadata (e.g., missing metadata.json or cloud summaries)
-    pair_models = [
-        m for m in local_models
-        if isinstance(m, dict) and m.get("trading_pair") == trading_pair
-    ]
-    logger.info(f"📊 Found {len(pair_models)} local models matching trading_pair: '{trading_pair}'")
-    
-    # Log the trading pairs found in local models for debugging
-    unique_pairs = set()
-    for m in local_models:
-        if isinstance(m, dict) and "trading_pair" in m:
-            unique_pairs.add(m.get("trading_pair"))
-    logger.info(f"📊 Unique trading pairs in local models: {unique_pairs}")
-    
     # Get cloud models
     cloud_models = []
     if model_storage_manager:
         try:
-            logger.info(f"☁️ Fetching cloud models for trading_pair: '{trading_pair}'")
-            cloud_models = await model_storage_manager.list_models(trading_pair=trading_pair)
+            logger.info(f"☁️ Fetching cloud models for trading_pair: '{canonical_pair}'")
+            cloud_models = await model_storage_manager.list_models(trading_pair=canonical_pair)
             logger.info(f"📊 Found {len(cloud_models)} cloud models matching trading_pair: '{trading_pair}'")
             
             # Log cloud model details for debugging
@@ -435,14 +430,12 @@ async def get_models_for_pair(trading_pair: str = PathParam(...)):
         logger.warning("⚠️ model_storage_manager not initialized, skipping cloud models")
     
     response = {
-        "trading_pair": trading_pair,
-        "local_models": pair_models,
+        "trading_pair": canonical_pair,
         "cloud_models": cloud_models,
-        "local_count": len(pair_models),
         "cloud_count": len(cloud_models)
     }
     
-    logger.info(f"✅ Returning response with {len(pair_models)} local models and {len(cloud_models)} cloud models")
+    logger.info(f"✅ Returning response with {len(cloud_models)} cloud models")
     return response
 
 @app.post("/train", response_model=TrainingResponse)
@@ -453,6 +446,8 @@ async def train_model(request: TrainingRequest):
     if not model_trainer:
         raise HTTPException(status_code=503, detail="ML service not initialized")
     
+    # Normalize trading pair to canonical for consistency
+    canonical_pair = normalize_internal(request.trading_pair)
     # Check if we already have a model for this pair and type
     if not request.force_retrain:
         models = model_trainer.list_trained_models()
@@ -460,20 +455,20 @@ async def train_model(request: TrainingRequest):
         existing_models = [
             m for m in models
             if isinstance(m, dict)
-            and m.get("trading_pair") == request.trading_pair
+            and m.get("trading_pair") == canonical_pair
             and m.get("algorithm") == request.model_type
         ]
         
         if existing_models:
-            logger.info(f"ℹ️ Model already exists for {request.trading_pair} ({request.model_type})")
+            logger.info(f"ℹ️ Model already exists for {canonical_pair} ({request.model_type})")
     
     # Create job ID
-    job_id = f"{request.trading_pair.replace('/', '_')}_{request.model_type}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    job_id = f"{canonical_pair}_{request.model_type}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
     
     # Create job
     job = {
         "job_id": job_id,
-        "trading_pair": request.trading_pair,
+        "trading_pair": canonical_pair,
         "model_type": request.model_type,
         "status": "queued",
         "submitted_at": datetime.now(),
@@ -487,11 +482,11 @@ async def train_model(request: TrainingRequest):
     training_jobs[job_id] = job
     await training_queue.put(job_id)
     
-    logger.info(f"📋 Training job queued for {request.trading_pair} ({job_id})")
+    logger.info(f"📋 Training job queued for {canonical_pair} ({job_id})")
     
     return TrainingResponse(
         job_id=job_id,
-        trading_pair=request.trading_pair,
+        trading_pair=canonical_pair,
         model_type=request.model_type,
         status="queued",
         submitted_at=job["submitted_at"]
@@ -516,13 +511,14 @@ async def train_all_models(model_type: str = "xgboost", force_retrain: bool = Fa
     jobs = []
     
     for trading_pair in DEFAULT_TRADING_PAIRS:
+        canonical_pair = normalize_internal(trading_pair)
         # Create job ID
-        job_id = f"{trading_pair.replace('/', '_')}_{model_type}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        job_id = f"{canonical_pair}_{model_type}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         
         # Create job
         job = {
             "job_id": job_id,
-            "trading_pair": trading_pair,
+            "trading_pair": canonical_pair,
             "model_type": model_type,
             "status": "queued",
             "submitted_at": datetime.now(),
@@ -538,7 +534,7 @@ async def train_all_models(model_type: str = "xgboost", force_retrain: bool = Fa
         
         jobs.append({
             "job_id": job_id,
-            "trading_pair": trading_pair,
+            "trading_pair": canonical_pair,
             "status": "queued"
         })
     
@@ -701,22 +697,23 @@ async def schedule_auto_training():
             
             # Check if we have enough new samples for each pair
             for trading_pair in AUTO_TRAINING["trading_pairs"]:
+                canonical_pair = normalize_internal(trading_pair)
                 # Get count of new samples since last training
-                last_training_time = await get_last_training_time(trading_pair)
-                new_samples = await count_new_samples(trading_pair, last_training_time)
+                last_training_time = await get_last_training_time(canonical_pair)
+                new_samples = await count_new_samples(canonical_pair, last_training_time)
                 
-                logger.info(f"🤖 {trading_pair}: {new_samples} new samples since last training")
+                logger.info(f"🤖 {canonical_pair}: {new_samples} new samples since last training")
                 
                 if new_samples >= AUTO_TRAINING["min_new_samples"]:
                     # Schedule training for this pair
                     for model_type in AUTO_TRAINING["model_types"]:
                         # Create job ID
-                        job_id = f"{trading_pair.replace('/', '_')}_{model_type}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                        job_id = f"{canonical_pair}_{model_type}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
                         
                         # Create job
                         job = {
                             "job_id": job_id,
-                            "trading_pair": trading_pair,
+                            "trading_pair": canonical_pair,
                             "model_type": model_type,
                             "status": "queued",
                             "submitted_at": datetime.now(),
@@ -731,7 +728,7 @@ async def schedule_auto_training():
                         training_jobs[job_id] = job
                         await training_queue.put(job_id)
                         
-                        logger.info(f"🤖 Auto-scheduled training for {trading_pair} ({model_type})")
+                        logger.info(f"🤖 Auto-scheduled training for {canonical_pair} ({model_type})")
             
             # Sleep until next check
             await asyncio.sleep(AUTO_TRAINING["schedule_interval_hours"] * 3600)
@@ -740,30 +737,43 @@ async def schedule_auto_training():
             await asyncio.sleep(300)  # Sleep for 5 minutes before retrying
 
 async def get_last_training_time(trading_pair: str) -> datetime:
-    """Get the timestamp of the last training for a trading pair"""
-    # Check if we have any models for this pair
-    models = [m for m in model_trainer.list_trained_models() if m["trading_pair"] == trading_pair]
+    """Get the timestamp of the last training for a trading pair (cloud-only)."""
+    canonical_pair = normalize_internal(trading_pair)
+    try:
+        # List cloud models for this pair
+        models = await model_storage_manager.list_models(trading_pair=canonical_pair)
+    except Exception as e:
+        logger.error(f"❌ Error listing cloud models for last training time: {str(e)}")
+        models = []
     
     if not models:
-        # No models found, return a date far in the past
         return datetime.now() - timedelta(days=365)
     
-    # Find the most recent model
-    latest_model = max(models, key=lambda m: datetime.fromisoformat(m["created_at"]))
-    return datetime.fromisoformat(latest_model["created_at"])
+    # Determine timestamp field with fallbacks
+    def parse_ts(m: dict) -> datetime:
+        for key in ("saved_at", "trained_at", "created_at", "r2_upload_time"):
+            v = m.get(key)
+            if isinstance(v, str):
+                try:
+                    return datetime.fromisoformat(v)
+                except Exception:
+                    continue
+        return datetime.min
+    
+    latest_model = max(models, key=parse_ts)
+    return parse_ts(latest_model)
 
 async def count_new_samples(trading_pair: str, since: datetime) -> int:
     """Count the number of new candle samples for a trading pair since a given time"""
     if not mongodb_manager or not mongodb_manager.is_connected:
         return 0
     
-    # Format trading pair for MongoDB query
-    formatted_pair = trading_pair.replace("/", "")
-    
     try:
         # Count documents newer than the given timestamp
+        # Use API asset format to match stored candle trading_pair values
+        api_pair = to_api_asset(trading_pair)
         count = await mongodb_manager.db.candles.count_documents({
-            "trading_pair": {"$in": [trading_pair, formatted_pair]},
+            "trading_pair": api_pair,
             "timestamp": {"$gt": since}
         })
         return count

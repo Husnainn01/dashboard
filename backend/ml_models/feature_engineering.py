@@ -1093,7 +1093,7 @@ class FeatureEngineer:
         # 4. If still no candles, try to get all available pairs and find the best match
         if len(candles) < 50:
             try:
-                all_pairs_cursor = await self.mongodb.db.candle_data.distinct("trading_pair")
+                all_pairs_cursor = await self.mongodb.db.candles.distinct("trading_pair")
                 logger.info(f"Available trading pairs in database: {all_pairs_cursor}")
                 
                 # Try each available pair to see if it might match

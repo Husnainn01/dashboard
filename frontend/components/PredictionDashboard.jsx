@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import ConfigurationPanel from './ConfigurationPanel';
+import SidePanel from './SidePanel';
 import PredictionCard from './PredictionCard';
 import ConnectionStatus from './ConnectionStatus';
 import ModelSelectionModal from './ModelSelectionModal';
@@ -37,19 +37,7 @@ const PredictionDashboard = () => {
   // System status
   const [systemStatus, setSystemStatus] = useState({});
   
-  // Available trading pairs - focused only on USD/BRL(OTC)
-  const tradingPairs = [
-    { value: 'USD/BRL(OTC)', label: 'USD/BRL OTC', flag: '🇺🇸🇧🇷' }
-  ];
-  
-  // Timezone options
-  const timezoneOptions = [
-    { value: 'Asia/Bangkok', label: 'UTC+7 (Bangkok)' },
-    { value: 'UTC', label: 'UTC' },
-    { value: 'America/New_York', label: 'New York (EST/EDT)' },
-    { value: 'Europe/London', label: 'London (GMT/BST)' },
-    { value: 'Asia/Tokyo', label: 'Tokyo (JST)' }
-  ];
+  // (Timezone remains configurable internally; UI control migrated out for now)
 
   // Helper: parse backend timestamps as UTC if missing TZ info
   const parseUtc = (ts) => {
@@ -244,16 +232,7 @@ const PredictionDashboard = () => {
     setTimezone(newTimezone);
   };
 
-  const togglePrediction = () => {
-    if (!predictionActive) {
-      // When starting predictions, first show model selection modal
-      fetchAvailableModels();
-      setShowModelSelection(true);
-    } else {
-      // When stopping predictions, just stop
-      setPredictionActive(false);
-    }
-  };
+  // SidePanel will manage start/stop directly
   
   // Fetch available models for the selected trading pair
   const fetchAvailableModels = async () => {
@@ -447,19 +426,15 @@ const PredictionDashboard = () => {
 
       {/* Main Content */}
       <div className="main-content">
-        {/* Left Panel - Configuration */}
+        {/* Left Panel - Netflix Side Panel */}
         <div className="config-panel">
-          <ConfigurationPanel 
-            tradingPairs={tradingPairs}
-            timezoneOptions={timezoneOptions}
+          <SidePanel
             selectedPair={selectedPair}
-            selectedTimezone={timezone}
             onPairChange={handlePairChange}
-            onTimezoneChange={handleTimezoneChange}
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
             predictionActive={predictionActive}
-            onTogglePrediction={togglePrediction}
-            backendConnected={backendStatus === 'connected'}
-            onSystemStatusChange={setSystemStatus}
+            setPredictionActive={setPredictionActive}
           />
         </div>
 

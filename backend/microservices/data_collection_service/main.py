@@ -26,6 +26,12 @@ sys.path.append(str(backend_dir))
 from data_collection.collector import DataCollector
 from database.mongodb_models import MongoDBManager, CandleData
 from config import QUOTEX_EMAIL, QUOTEX_PASSWORD, DEFAULT_TRADING_PAIRS
+# Use microservice-specific collection settings
+from microservices.data_collection_service.config import (
+    HISTORICAL_DATA_DAYS as DC_HISTORICAL_DATA_DAYS,
+    DATA_COLLECTION_INTERVAL as DC_COLLECTION_INTERVAL,
+    DEFAULT_TIMEFRAME as DC_DEFAULT_TIMEFRAME,
+)
 
 # Setup logging
 logging.basicConfig(
@@ -140,15 +146,16 @@ class ContinuousDataService:
         # Configuration
         self.email = email or QUOTEX_EMAIL
         self.password = password or QUOTEX_PASSWORD
-        self.collection_interval = 30  # 30 seconds between collections (more frequent for USD/BRL)
-        self.timeframe = 60  # 1 minute timeframe (60 seconds)
+        self.collection_interval = DC_COLLECTION_INTERVAL  # seconds
+        self.timeframe = DC_DEFAULT_TIMEFRAME  # seconds per candle
         self.max_reconnect_attempts = 10  # Increased reconnect attempts
         self.reconnect_delay = 15  # Reduced delay between reconnection attempts (seconds)
-        self.historical_data_days = 30  # Collect 30 days of historical data on startup
+        self.historical_data_days = DC_HISTORICAL_DATA_DAYS  # Backfill N days of historical data on startup
         
-        # USD/BRL(OTC) specific settings
+        # Priority pair settings
         self.is_optimized_for_usd_brl = True
-        self.priority_pair = "USD/BRL(OTC)"  # Priority pair for data collection
+        # Use API-style name for priority to keep everything consistent
+        self.priority_pair = "BRLUSD_otc"  # Priority pair for data collection
         self.data_quality_checks = True  # Enable data quality checks
         self.retry_on_error = True  # Retry data collection on error
         self.max_retries = 3  # Maximum number of retries
@@ -205,17 +212,10 @@ class ContinuousDataService:
         # Ensure timeframe is set to 1 minute
         self.collector.timeframe = self.timeframe  # 60 seconds = 1 minute
         
-        # Update trading pairs from config 
-        # PyQuotex expects base pairs without OTC and without slashes
-        # Convert 'USD/BRL(OTC)' to 'USDBRL'
-        self.collector.trading_pairs = []
-        for pair in DEFAULT_TRADING_PAIRS:
-            # Extract the base pair by removing '(OTC)' and the '/'
-            base_pair = pair.replace('(OTC)', '').replace('/', '')
-            
-            # Some PyQuotex assets might need _otc suffix
-            # We'll try both formats later if needed
-            self.collector.trading_pairs.append(base_pair)
+        # Update trading pairs from config using shared normalization utilities
+        # Accepts aliases and converts to API asset form, e.g., 'USDBRL_otc'
+        from shared.pairs import to_api_asset
+        self.collector.trading_pairs = [to_api_asset(pair) for pair in DEFAULT_TRADING_PAIRS]
         
         logger.info(f"📊 Configured trading pairs in database: {DEFAULT_TRADING_PAIRS}")
         logger.info(f"📊 Configured trading pairs for PyQuotex: {self.collector.trading_pairs}")
@@ -303,14 +303,14 @@ class ContinuousDataService:
                         self.stats['retries'] += 1
                         continue
                 
-                # Prioritize USD/BRL(OTC) collection
+                # Prioritize priority pair collection
                 if self.is_optimized_for_usd_brl:
-                    # First collect USD/BRL(OTC) data specifically
+                    # First collect priority pair specifically
                     usd_brl_candles = await self.collect_priority_pair()
                     
                     if usd_brl_candles:
                         self.stats['usd_brl_collections'] += 1
-                        logger.info(f"✅ USD/BRL(OTC) collection successful: {len(usd_brl_candles)} candles")
+                        logger.info(f"✅ {self.priority_pair} collection successful: {len(usd_brl_candles)} candles")
                         
                         # Perform data quality checks for USD/BRL(OTC)
                         if self.data_quality_checks:
@@ -318,7 +318,7 @@ class ContinuousDataService:
                                 if not self.check_data_quality(candle):
                                     self.stats['data_quality_issues'] += 1
                                 
-                        # Broadcast USD/BRL(OTC) candles via WebSocket
+                        # Broadcast priority pair candles via WebSocket
                         for candle in usd_brl_candles:
                             # Log candle details with enhanced information
                             logger.info(f"  📈 {candle.trading_pair}: {candle.direction} | "
@@ -328,34 +328,49 @@ class ContinuousDataService:
                             # Broadcast to WebSocket clients
                             await broadcast_market_update(candle)
                 
-                # Collect data for all configured assets (including USD/BRL if not already collected)
-                # This ensures we maintain data for all pairs while prioritizing USD/BRL
-                candles = await self.collector.collect_all_assets()
+                # Track if we already collected something via the priority step
+                had_priority_success = bool(self.is_optimized_for_usd_brl and 'usd_brl_candles' in locals() and usd_brl_candles)
                 
-                if candles:
+                # Collect data for all configured assets EXCEPT the priority pair to avoid duplicates
+                # Normalize priority to API-style for comparison
+                priority_api = self.priority_pair
+                if not priority_api.lower().endswith("_otc"):
+                    priority_api = f"{priority_api.replace('(OTC)', '').replace('/', '')}_otc"
+
+                candles = []
+                for asset in self.collector.trading_pairs:
+                    if asset == priority_api:
+                        continue
+                    try:
+                        candle = await self.collector.collect_candle_data(asset)
+                        if candle:
+                            candle_id = await self.mongodb.save_candle(candle)
+                            candle._id = candle_id
+                            candles.append(candle)
+                            logger.info(f"💾 Saved {asset} candle to MongoDB (ID: {candle_id})")
+                        await asyncio.sleep(1)
+                    except Exception as e:
+                        logger.error(f"❌ Error collecting {asset}: {str(e)}")
+                        continue
+                
+                if candles or had_priority_success:
                     self.stats['successful_collections'] += 1
                     self.stats['last_collection'] = datetime.now()
-                    
-                    logger.info(f"✅ Collection successful: {len(candles)} candles collected")
-                    
-                    # Broadcast each candle via WebSocket (except USD/BRL which was already broadcast)
+                    total_count = len(candles) + (len(usd_brl_candles) if had_priority_success else 0)
+                    logger.info(f"✅ Collection successful: {total_count} candles collected")
+
+                    # Broadcast each candle via WebSocket (except the priority pair which was already broadcast)
                     for candle in candles:
-                        # Skip USD/BRL candles if we already processed them
-                        if self.is_optimized_for_usd_brl and candle.trading_pair == self.priority_pair:
+                        if self.is_optimized_for_usd_brl and candle.trading_pair == priority_api:
                             continue
-                            
-                        # Log candle details
                         logger.info(f"  📈 {candle.trading_pair}: {candle.direction} | "
-                                  f"O:{candle.open:.5f} C:{candle.close:.5f} | "
-                                  f"Change: {candle.change:+.5f}")
-                        
-                        # Broadcast to WebSocket clients
+                                    f"O:{candle.open:.5f} C:{candle.close:.5f} | "
+                                    f"Change: {candle.change:+.5f}")
                         await broadcast_market_update(candle)
-                    
+
                     # Get database stats
                     db_stats = await self.mongodb.get_stats()
                     logger.info(f"📊 Database: {db_stats['candles']['count']} total candles")
-                    
                     success = True
                     break
                 else:
@@ -469,6 +484,7 @@ class ContinuousDataService:
         last_ping_time = datetime.now()
         ping_interval = 60  # Send ping every 60 seconds
         reconnect_threshold = 180  # Force reconnect if no successful ping for 3 minutes
+        hard_watchdog_threshold = 600  # If no successful ping for 10 minutes, perform hard reset
         
         try:
             while not self.should_stop:
@@ -482,13 +498,15 @@ class ContinuousDataService:
                     try:
                         logger.info("📡 Sending ping to keep connection alive...")
                         if self.collector and self.collector.client and self.collector.is_connected:
-                            # Use a simple API call as a ping
-                            profile = await self.collector.client.get_profile()
+                            # Use a simple API call as a ping with timeout so we don't hang indefinitely
+                            profile = await asyncio.wait_for(self.collector.client.get_profile(), timeout=10)
                             if profile:
                                 logger.info("✅ Ping successful")
                                 last_ping_time = datetime.now()
                             else:
                                 logger.warning("⚠️ Ping returned no data")
+                    except asyncio.TimeoutError:
+                        logger.warning("⚠️ Ping timed out (10s)")
                     except Exception as e:
                         logger.warning(f"⚠️ Ping failed: {str(e)}")
                 
@@ -508,6 +526,29 @@ class ContinuousDataService:
                             logger.error("❌ Reconnection failed")
                     except Exception as e:
                         logger.error(f"❌ Reconnection error: {str(e)}")
+
+                # Hard watchdog: if still no ping for a prolonged period, perform hard reset of collector
+                if time_since_last_ping >= hard_watchdog_threshold:
+                    logger.error(f"🧭 Watchdog: No successful ping for {time_since_last_ping:.1f}s. Performing hard reset of client and connection...")
+                    try:
+                        if self.collector:
+                            try:
+                                await self.collector.disconnect()
+                            except Exception:
+                                pass
+                            # Recreate the collector instance to clear any internal stuck state
+                            from data_collection.collector import DataCollector
+                            self.collector = DataCollector(email=self.email, password=self.password, is_demo=True, db=self.mongodb)
+                            self.collector.trading_pairs = [self.priority_pair]
+                            self.collector.timeframe = self.timeframe
+                        # Attempt to reconnect end-to-end
+                        if await self.connect_to_pyquotex():
+                            logger.info("✅ Hard reset reconnection successful")
+                            last_ping_time = datetime.now()
+                        else:
+                            logger.error("❌ Hard reset reconnection failed")
+                    except Exception as e:
+                        logger.error(f"❌ Hard reset error: {e}")
                 
                 # Synchronize with market timing for more accurate data
                 # For 1-minute candles, align collection to start a few seconds after the minute
@@ -567,10 +608,12 @@ class ContinuousDataService:
                             try:
                                 logger.info("📡 Sending ping during sleep period...")
                                 if self.collector and self.collector.client and self.collector.is_connected:
-                                    profile = await self.collector.client.get_profile()
+                                    profile = await asyncio.wait_for(self.collector.client.get_profile(), timeout=10)
                                     if profile:
                                         logger.info("✅ Sleep period ping successful")
                                         last_ping_time = datetime.now()
+                            except asyncio.TimeoutError:
+                                logger.warning("⚠️ Sleep period ping timed out (10s)")
                             except Exception as e:
                                 logger.warning(f"⚠️ Sleep period ping failed: {str(e)}")
                         
@@ -587,34 +630,84 @@ class ContinuousDataService:
     async def collect_historical_data(self):
         """Collect historical data for USD/BRL(OTC)"""
         try:
-            logger.info(f"📚 Collecting {self.historical_data_days} days of historical data for {self.priority_pair}...")
-            
-            # Extract the base pair by removing '(OTC)' and the '/'
-            base_pair = self.priority_pair.replace('(OTC)', '').replace('/', '')
-            
-            # Calculate timestamp for historical data (days ago)
-            days_ago = self.historical_data_days
-            
-            # Attempt to collect historical data
-            if hasattr(self.collector, 'get_historical_candles'):
-                historical_candles = await self.collector.get_historical_candles(
-                    asset=base_pair,
-                    days=days_ago,
-                    timeframe=self.timeframe
+            # Determine missing window by looking at latest stored candle
+            now_ts = datetime.now()
+            latest = []
+            try:
+                latest = await self.mongodb.get_candles(
+                    trading_pair=self.priority_pair,
+                    limit=1
                 )
-                
-                if historical_candles and len(historical_candles) > 0:
-                    logger.info(f"✅ Collected {len(historical_candles)} historical candles for {self.priority_pair}")
-                    
-                    # Process and store historical candles
-                    # This depends on the implementation of your collector
-                    if hasattr(self.collector, 'process_historical_candles'):
-                        await self.collector.process_historical_candles(historical_candles, base_pair)
-                else:
-                    logger.warning(f"⚠️ No historical data collected for {self.priority_pair}")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not query latest candle: {e}")
+
+            latest_ts = None
+            if latest:
+                latest_ts = latest[0].get("timestamp")
+
+            # Compute how many days are actually missing
+            missing_days = self.historical_data_days
+            if latest_ts:
+                delta_sec = max(0, int((now_ts - latest_ts).total_seconds()))
+                missing_days = (delta_sec + 86399) // 86400  # ceil to days
+
+            if missing_days <= 0:
+                logger.info(f"✅ Historical data up-to-date for {self.priority_pair}; skipping backfill")
             else:
-                logger.warning("⚠️ Historical data collection not supported by collector")
-                
+                logger.info(f"📚 Collecting {missing_days} missing day(s) of historical data for {self.priority_pair}...")
+
+                # Use priority pair directly (already API-style, e.g., BRLUSD_otc)
+                base_pair = self.priority_pair
+
+                # Attempt to collect historical data for missing window only (forward gap fill)
+                if hasattr(self.collector, 'get_historical_candles'):
+                    historical_candles = await self.collector.get_historical_candles(
+                        asset=base_pair,
+                        days=missing_days,
+                        timeframe=self.timeframe
+                    )
+                    if historical_candles and len(historical_candles) > 0:
+                        logger.info(f"✅ Collected {len(historical_candles)} historical candles for {self.priority_pair}")
+                        if hasattr(self.collector, 'process_historical_candles'):
+                            await self.collector.process_historical_candles(historical_candles, base_pair)
+                    else:
+                        logger.warning(f"⚠️ No historical data collected for {self.priority_pair}")
+                else:
+                    logger.warning("⚠️ Historical data collection not supported by collector")
+
+            # After forward gap fill, ensure we have at least historical_data_days of total history by extending earlier than oldest if needed
+            try:
+                stats = await self.mongodb.get_stats()
+                oldest_iso = stats.get('candles', {}).get('oldest') if isinstance(stats, dict) else None
+                oldest_ts = datetime.fromisoformat(oldest_iso) if oldest_iso else None
+            except Exception as e:
+                logger.warning(f"⚠️ Could not get DB stats for oldest candle: {e}")
+                oldest_ts = None
+
+            if oldest_ts:
+                desired_start = now_ts - timedelta(days=self.historical_data_days)
+                if oldest_ts > desired_start:
+                    # Need to go further back from the current oldest boundary
+                    need_seconds = int((oldest_ts - desired_start).total_seconds())
+                    additional_days = max(1, (need_seconds + 86399) // 86400)
+                    logger.info(f"📚 Extending history by ~{additional_days} day(s) prior to oldest {oldest_ts.isoformat()} for {self.priority_pair}")
+                    if hasattr(self.collector, 'get_historical_candles'):
+                        try:
+                            more_candles = await self.collector.get_historical_candles(
+                                asset=self.priority_pair,
+                                days=additional_days,
+                                timeframe=self.timeframe,
+                                end_from_time=int(oldest_ts.timestamp())
+                            )
+                            if more_candles:
+                                logger.info(f"✅ Collected {len(more_candles)} additional older candles for {self.priority_pair}")
+                                if hasattr(self.collector, 'process_historical_candles'):
+                                    await self.collector.process_historical_candles(more_candles, self.priority_pair)
+                        except Exception as ee:
+                            logger.warning(f"⚠️ Failed to collect additional older history: {ee}")
+            else:
+                logger.info("ℹ️ No oldest timestamp available; skipping early extension step")
+
         except Exception as e:
             logger.error(f"❌ Error collecting historical data: {str(e)}")
             # Continue with real-time collection even if historical collection fails
@@ -932,24 +1025,42 @@ async def broadcast_market_update(candle_data: CandleData):
         logger.error(f"❌ Error broadcasting market update: {str(e)}")
 
 async def run_data_service():
-    """Run the data collection service"""
+    """Run the data collection service with auto-restart watchdog"""
     global data_service, data_service_running
     
-    try:
-        # Initialize data service
-        data_service = ContinuousDataService()
-        if not await data_service.initialize():
-            logger.error("❌ Failed to initialize data service")
-            data_service_running = False
-            return
-        
-        # Run continuous collection
-        await data_service.run_continuous_collection()
-    except Exception as e:
-        logger.error(f"❌ Data service error: {str(e)}")
-    finally:
-        data_service_running = False
-        logger.info("🛑 Data service stopped")
+    restart_attempt = 0
+    max_backoff = 60
+    
+    while data_service_running:
+        try:
+            # Initialize data service
+            data_service = ContinuousDataService()
+            if not await data_service.initialize():
+                logger.error("❌ Failed to initialize data service")
+                break
+            
+            # Run continuous collection
+            await data_service.run_continuous_collection()
+            
+            # If loop exits normally (should_stop), break if stop requested
+            if data_service.should_stop:
+                break
+            
+        except Exception as e:
+            logger.error(f"❌ Data service error: {str(e)}")
+        finally:
+            # If we are still marked running, sleep with backoff and restart
+            if data_service_running and (not data_service or not data_service.should_stop):
+                restart_attempt += 1
+                backoff = min(max_backoff, 2 * restart_attempt)
+                logger.warning(f"🔁 Restarting data service in {backoff}s (attempt {restart_attempt})...")
+                await asyncio.sleep(backoff)
+                continue
+            else:
+                break
+    
+    data_service_running = False
+    logger.info("🛑 Data service stopped")
 
 async def initialize_service():
     """Initialize the service"""

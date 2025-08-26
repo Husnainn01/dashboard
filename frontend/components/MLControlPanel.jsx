@@ -121,14 +121,15 @@ const MLControlPanel = ({ selectedPair, onStatusChange }) => {
     }
   };
   
-  // Start training a new model
-  const handleStartTraining = async () => {
+  // Start training a new model (optionally override selected type)
+  const handleStartTraining = async (overrideModelType = null) => {
+    const modelTypeToUse = overrideModelType || selectedModelType;
     setIsTraining(true);
-    setTrainingStatus('Starting training...');
+    setTrainingStatus(`Starting ${modelTypeToUse} training...`);
     
     try {
-      const response = await retrainModel(selectedPair, selectedModelType);
-      setTrainingStatus(`Training job submitted: ${response.job_id}`);
+      const response = await retrainModel(selectedPair, modelTypeToUse);
+      setTrainingStatus(`Training job submitted (${modelTypeToUse}): ${response.job_id}`);
       
       // Poll for training status
       const checkTrainingStatus = async () => {
@@ -311,6 +312,33 @@ const MLControlPanel = ({ selectedPair, onStatusChange }) => {
             <span className="toggle-slider"></span>
           </label>
           <span className="toggle-label">{autoTrain ? 'On' : 'Off'}</span>
+        </div>
+        
+        {/* Quick Train Buttons */}
+        <div className="control-row">
+          <div className="btn-group">
+            <button 
+              className="btn btn-secondary"
+              onClick={() => handleStartTraining('xgboost')}
+              disabled={isTraining}
+            >
+              Train XGBoost
+            </button>
+            <button 
+              className="btn btn-secondary"
+              onClick={() => handleStartTraining('lightgbm')}
+              disabled={isTraining}
+            >
+              Train LightGBM
+            </button>
+            <button 
+              className="btn btn-secondary"
+              onClick={() => handleStartTraining('random_forest')}
+              disabled={isTraining}
+            >
+              Train Random Forest
+            </button>
+          </div>
         </div>
         
         <button 

@@ -19,10 +19,7 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 # Trading Settings
 DEFAULT_TIMEFRAME = 60  # seconds (1 minute)
 DEFAULT_TRADING_PAIRS = [
-    'USD/BRL(OTC)',  # Priority pair
-    'NZD/CAD(OTC)',
-    'USD/BDT(OTC)',
-    'USD/EGP(OTC)'
+    'BRLUSD_otc'
 ]
 
 # ML Model Settings

@@ -1,0 +1,113 @@
+/* Netflix-inspired dark theme */
+:root {
+  --bg: #0b0b0b;
+  --panel: #141414;
+  --panel-2: #1a1a1a;
+  --card: #181818;
+  --text: #e5e5e5;
+  --muted: #9a9a9a;
+  --accent: #e50914;
+  --accent-2: #b20710;
+  --success: #00d27a;
+  --danger: #ff4d4f;
+  --border: #2a2a2a;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Layout container remains from existing prediction.css but colors align */
+.dashboard-container {
+  background: var(--bg);
+}
+
+/* Side Panel */
+.side-panel {
+  width: 320px;
+  background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+  border-right: 1px solid var(--border);
+  height: calc(100vh - 0px);
+  padding: 16px;
+  position: sticky;
+  top: 0;
+}
+
+.sp-header .brand {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+.sp-header .subtitle {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.sp-section {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.sp-title {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.sp-select {
+  width: 100%;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.sp-button {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  transition: all .15s ease;
+  margin-top: 8px;
+}
+.sp-button:hover { filter: brightness(1.1); }
+.sp-button:disabled { opacity: .6; cursor: not-allowed; }
+
+.sp-button.primary { background: var(--accent); border-color: var(--accent-2); }
+.sp-button.success { background: var(--success); border-color: #00b36b; }
+.sp-button.danger { background: var(--danger); border-color: #d9363e; }
+.sp-button.ghost { background: transparent; }
+
+.sp-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.sp-footer {
+  position: absolute;
+  bottom: 10px;
+  left: 16px;
+  right: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+/* Right panel cards can use card color */
+.current-prediction, .prediction-history, .config-panel, .prediction-panel {
+  background: transparent;
+}
+
+.history-item { background: var(--card); border: 1px solid var(--border); border-radius: 8px; }

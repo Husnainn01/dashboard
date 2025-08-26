@@ -6,9 +6,9 @@ import os
 from pathlib import Path
 
 # Trading Configuration
-# Focusing exclusively on USD/BRL(OTC) for improved prediction accuracy
+# Use exact stored identifier, no formatting conversions
 DEFAULT_TRADING_PAIRS = [
-    "USD/BRL(OTC)"
+    "BRLUSD_otc"
 ]
 
 # Disabled pairs (kept for reference)

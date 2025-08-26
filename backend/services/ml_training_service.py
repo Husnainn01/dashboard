@@ -22,6 +22,7 @@ from database.mongodb_models import MongoDBManager
 from ml_models.xgboost_trainer import XGBoostTrainer
 from ml_models.feature_engineering import FeatureEngineer
 from config import MODEL_RETRAIN_INTERVAL, MIN_TRAINING_SAMPLES
+from shared.pairs import normalize_internal
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -209,9 +210,12 @@ class MLTrainingService:
                 with open(metadata_path, 'r') as f:
                     metadata = json.load(f)
                     
-                # Filter by trading pair if specified
-                if trading_pair and metadata.get('trading_pair') != trading_pair:
-                    continue
+                # Filter by trading pair if specified (normalize to internal canonical)
+                if trading_pair:
+                    requested_internal = normalize_internal(trading_pair) or trading_pair
+                    meta_internal = normalize_internal(metadata.get('trading_pair', '')) or metadata.get('trading_pair')
+                    if meta_internal != requested_internal:
+                        continue
                     
                 models.append(metadata)
             except Exception as e:
@@ -251,6 +255,28 @@ class MLTrainingService:
         except Exception as e:
             logger.error(f"❌ Error loading metadata for {model_name}: {str(e)}")
             return {'error': f'Error loading metadata: {str(e)}'}
+    
+    async def get_latest_model_info(self, trading_pair: str, algorithm: str = "xgboost") -> Dict:
+        """
+        Fetch the latest model info for a trading pair from R2 storage.
+        Currently supports XGBoost via the XGBoostTrainer helper.
+        """
+        try:
+            if algorithm != "xgboost":
+                return {'error': f'Algorithm {algorithm} not supported for latest lookup'}
+            latest_model_name = await self.xgboost_trainer.find_latest_model(trading_pair)
+            if not latest_model_name:
+                return {'error': f'No models found for {trading_pair}'}
+            loaded = await self.xgboost_trainer.load_model(latest_model_name)
+            if not loaded:
+                return {'error': f'Unable to load latest model {latest_model_name}'}
+            return {
+                'model_name': latest_model_name,
+                'metadata': loaded.get('metadata')
+            }
+        except Exception as e:
+            logger.error(f"❌ Error fetching latest model info: {str(e)}")
+            return {'error': str(e)}
     
     async def _background_retraining_task(self):
         """Background task for automatic model retraining"""
@@ -419,6 +445,25 @@ def create_ml_training_api(app: FastAPI, ml_training_service: MLTrainingService)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error getting model details: {str(e)}"
+            )
+    
+    @app.get("/ml/models/latest")
+    async def get_latest_model(
+        trading_pair: str = Query(..., description="Trading pair, e.g., 'USD/BRL(OTC)'")
+    ):
+        """Get latest model metadata for a trading pair (algorithm defaults to xgboost)."""
+        try:
+            result = await ml_training_service.get_latest_model_info(trading_pair=trading_pair, algorithm="xgboost")
+            if 'error' in result:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=result['error'])
+            return result
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ Error in get_latest_model endpoint: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error getting latest model: {str(e)}"
             )
     
     @app.put("/ml/config")

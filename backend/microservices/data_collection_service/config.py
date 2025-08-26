@@ -8,7 +8,7 @@ from pathlib import Path
 # Trading Configuration
 # Focusing exclusively on USD/BRL(OTC) for improved prediction accuracy
 DEFAULT_TRADING_PAIRS = [
-    "USD/BRL(OTC)"
+    "BRLUSD_otc"
 ]
 
 # Disabled pairs (kept for reference)
@@ -25,7 +25,7 @@ QUOTEX_PASSWORD = os.getenv('QUOTEX_PASSWORD', 'May4732@123@')
 # Data Collection Settings - Optimized for USD/BRL(OTC)
 DATA_COLLECTION_INTERVAL = int(os.environ.get("DATA_COLLECTION_INTERVAL", "30"))  # seconds (more frequent collection)
 DEFAULT_TIMEFRAME = int(os.environ.get("DEFAULT_TIMEFRAME", "60"))  # seconds (1 minute)
-HISTORICAL_DATA_DAYS = int(os.environ.get("HISTORICAL_DATA_DAYS", "30"))  # Collect 30 days of historical data
+HISTORICAL_DATA_DAYS = int(os.environ.get("HISTORICAL_DATA_DAYS", "180"))  # Collect 6 months of historical data on startup
 DATA_QUALITY_CHECKS = True  # Enable data quality checks
 RETRY_ON_ERROR = True  # Retry data collection on error
 MAX_RETRIES = 3  # Maximum number of retries
@@ -55,7 +55,7 @@ MODEL_VERSIONING = {
 
 # Data Retention Configuration
 DATA_RETENTION = {
-    "retention_days": int(os.environ.get("DATA_RETENTION_DAYS", "90")),  # Keep data for 90 days by default
+    "retention_days": int(os.environ.get("DATA_RETENTION_DAYS", "210")),  # Keep data for ~7 months by default
     "enable_auto_cleanup": True,  # Automatically clean up old data
     "cleanup_interval_hours": 24,  # Run cleanup every 24 hours
 }

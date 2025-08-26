@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import os
 import argparse
+from urllib.parse import urlencode
 import json
 import httpx
 import uvicorn
@@ -35,6 +36,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Pair normalization helpers
+def normalize_trading_pair(raw: str) -> str:
+    """Normalize trading pair to canonical form 'USDBRL'.
+
+    Accepts aliases like 'USD/BRL(OTC)', 'USD/BRL', 'USDBRL OTC'.
+    """
+    if not raw:
+        return raw
+    s = raw.strip().upper()
+    # Remove spaces
+    s = s.replace(" ", "")
+    # Remove market suffix '(OTC)' or 'OTC'
+    s = s.replace("(OTC)", "")
+    s = s.replace("OTC", "")
+    # Remove slash
+    s = s.replace("/", "")
+    return s
+
 # Create FastAPI app
 app = FastAPI(
     title="OTC Predictor API Gateway",
@@ -54,19 +73,19 @@ app.add_middleware(
 # Service configuration
 service_config = {
     "data_collection": {
-        # Using the public domain provided for data collection service
-        "host": os.getenv("DATA_SERVICE_HOST", "datacollection-service-production.up.railway.app"),
+        # Default to localhost for local development; override via env if needed
+        "host": os.getenv("DATA_SERVICE_HOST", "localhost"),
         "port": int(os.getenv("DATA_SERVICE_PORT", "5008")),
         "ws_path": "/ws/market-data"
     },
     "ml_training": {
-        # Using the public domain provided for ML training service
-        "host": os.getenv("ML_SERVICE_HOST", "ml-traning-service-production.up.railway.app"),
+        # Default to localhost for local development; override via env if needed
+        "host": os.getenv("ML_SERVICE_HOST", "localhost"),
         "port": int(os.getenv("ML_SERVICE_PORT", "5002"))
     },
     "prediction": {
-        # Using the public domain provided for prediction service
-        "host": os.getenv("PREDICTION_SERVICE_HOST", "prediction-service-production.up.railway.app"),
+        # Default to localhost for local development; override via env if needed
+        "host": os.getenv("PREDICTION_SERVICE_HOST", "localhost"),
         "port": int(os.getenv("PREDICTION_SERVICE_PORT", "5003")),
         "ws_path": "/ws/predictions"
     }
@@ -433,9 +452,10 @@ async def get_models():
 async def get_models_for_pair(trading_pair: str):
     """Get trained models for a specific trading pair"""
     logger.info(f"🔍 Received request for models with trading_pair: '{trading_pair}'")
+    canonical = normalize_trading_pair(trading_pair)
     return await forward_request(
         "ml_training", 
-        f"/models/{trading_pair}"
+        f"/models/{canonical}"
     )
 
 @app.post("/ml/train")
@@ -494,14 +514,16 @@ async def make_prediction(request: Request):
     try:
         data = await request.json()
         trading_pair = data.get("trading_pair")
+        canonical = normalize_trading_pair(trading_pair)
+        if trading_pair and canonical != trading_pair:
+            data["trading_pair"] = canonical
         logger.info(f"🔮 POST prediction request for trading pair: {trading_pair}")
         
         # Forward the request directly
-        result = await forward_request(
-            request,
-            "prediction", 
-            "/predict"
-        )
+        # Rebuild a minimal request by sending the JSON body downstream
+        path = "/predict"
+        response = await http_client.post(get_service_url("prediction", path), json=data)
+        result = Response(content=await response.aread(), status_code=response.status_code, headers=dict(response.headers))
         logger.info(f"✅ POST prediction successful for {trading_pair}")
         return result
     except Exception as e:
@@ -531,22 +553,51 @@ async def make_prediction(request: Request):
                 detail=f"Failed to get prediction: {str(e)}"
             )
 
-@app.get("/predict/{trading_pair}")
+@app.get("/predict-by-query")
+async def quick_prediction_by_query(trading_pair: str, model_type: str = None, model_name: str = None):
+    """Alternative quick prediction endpoint using query params only"""
+    try:
+        canonical = normalize_trading_pair(trading_pair)
+        query_params = [("trading_pair", canonical)]
+        if model_type:
+            query_params.append(("model_type", model_type))
+        if model_name:
+            query_params.append(("model_name", model_name))
+
+        # Forward to prediction service /predict-by-query using query in path
+        path = f"/predict-by-query?{urlencode(query_params)}"
+        response = await forward_request(
+            "prediction",
+            path,
+            method="GET"
+        )
+        return response
+    except Exception as e:
+        logger.exception("❌ Error in quick_prediction_by_query")
+        raise HTTPException(status_code=502, detail=f"Failed to get prediction by query: {str(e)}")
+
+@app.get("/predict/{trading_pair:path}")
 async def quick_prediction(trading_pair: str, model_type: str = None, model_name: str = None):
     """Quick prediction endpoint for a specific trading pair"""
     try:
-        logger.info(f"🔮 Prediction request for trading pair: {trading_pair}")
-        
-        # Use query parameters instead of path parameters to avoid URL encoding issues
-        path = f"/predict-by-query?trading_pair={trading_pair}"
+        # We forward to the prediction service's query-based endpoint to avoid
+        # path issues and keep behavior consistent
+        canonical = normalize_trading_pair(trading_pair)
+        query_params = [("trading_pair", canonical)]
         if model_type:
-            path += f"&model_type={model_type}"
+            query_params.append(("model_type", model_type))
         if model_name:
-            path += f"&model_name={model_name}"
-        
-        result = await forward_request("prediction", path)
+            query_params.append(("model_name", model_name))
+
+        # Forward to prediction service /predict-by-query via query string
+        path = f"/predict-by-query?{urlencode(query_params)}"
+        response = await forward_request(
+            "prediction",
+            path,
+            method="GET"
+        )
         logger.info(f"✅ Prediction successful for {trading_pair}")
-        return result
+        return response
     except Exception as e:
         logger.error(f"❌ Error in prediction endpoint for {trading_pair}: {str(e)}")
         # Try direct request to prediction service
@@ -606,6 +657,9 @@ async def select_prediction_model(request: Request):
         logger.info("🔍 Received request to select prediction model")
         data = await request.json()
         trading_pair = data.get("trading_pair")
+        canonical = normalize_trading_pair(trading_pair)
+        if trading_pair and canonical != trading_pair:
+            data["trading_pair"] = canonical
         model_name = data.get("model_name")
         model_type = data.get("model_type")
         logger.info(f"🔍 Selecting model for trading pair: {trading_pair}, model: {model_name}, type: {model_type}")
@@ -620,11 +674,11 @@ async def select_prediction_model(request: Request):
         for idx, path in enumerate(target_paths):
             try:
                 logger.info(f"📡 Forwarding model selection to prediction service path: {path}")
-                response = await forward_request(
-                    request,
-                    "prediction",
-                    path
-                )
+                # Send normalized JSON downstream
+                target = get_service_url("prediction", path)
+                async with httpx.AsyncClient() as client:
+                    resp = await client.post(target, json=data)
+                response = Response(content=await resp.aread(), status_code=resp.status_code, headers=dict(resp.headers))
                 # forward_request returns a FastAPI Response object
                 if hasattr(response, "status_code") and response.status_code == 200:
                     logger.info(f"✅ Model selection successful for {trading_pair} via {path}")

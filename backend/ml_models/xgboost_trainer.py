@@ -28,6 +28,7 @@ from ml_models.feature_engineering import FeatureEngineer
 # Import model storage service
 sys.path.append(str(Path(__file__).parent.parent / "microservices/ml_training_service"))
 from storage import ModelStorageService
+from shared.pairs import to_api_asset, normalize_internal
 
 logger = logging.getLogger(__name__)
 
@@ -109,22 +110,15 @@ class XGBoostTrainer:
         Returns:
             Dictionary with model results or None if training failed
         """
-        # Format trading pair to match how it's stored in MongoDB
-        formatted_pair = trading_pair
-        
-        # Handle USD/BRL(OTC) format
-        if '/' in trading_pair and '(' in trading_pair:
-            # Convert USD/BRL(OTC) to USDBRL OTC format
-            currency_pair = trading_pair.split('(')[0]  # Get USD/BRL
-            base, quote = currency_pair.split('/')      # Split into USD and BRL
-            formatted_pair = f"{base}{quote} OTC"       # USDBRL OTC
-            
-        logger.info(f"🧠 Training XGBoost model for {trading_pair} (formatted as {formatted_pair})")
+        # Normalize trading pair usage
+        api_pair = to_api_asset(trading_pair) or trading_pair
+        internal_pair = normalize_internal(trading_pair) or trading_pair
+        logger.info(f"🧠 Training XGBoost model for {trading_pair} (api={api_pair}, internal={internal_pair})")
         
         # Prepare training data
         logger.info("📊 Preparing training data...")
         features_df, targets_df = await self.feature_engineer.prepare_training_data(
-            trading_pair=formatted_pair, limit=data_limit
+            trading_pair=api_pair, limit=data_limit
         )
         
         if features_df.empty or targets_df.empty:
@@ -177,7 +171,7 @@ class XGBoostTrainer:
             
             # Save model
             model_info = await self._save_model(
-                model, scaler, trading_pair, metrics, feature_importance
+                model, scaler, internal_pair, metrics, feature_importance
             )
             
             result = {
@@ -272,10 +266,11 @@ class XGBoostTrainer:
         Returns:
             Dictionary with model info
         """
+        # Ensure internal canonical key is used for naming/metadata
+        internal_pair = normalize_internal(trading_pair) or trading_pair
         # Create model name with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        clean_pair = trading_pair.replace("/", "_").replace("(", "_").replace(")", "_")
-        model_name = f"xgboost_{clean_pair}_{timestamp}"
+        model_name = f"xgboost_{internal_pair}_{timestamp}"
         
         # Prepare model data (combine model and scaler)
         model_data = {
@@ -286,7 +281,7 @@ class XGBoostTrainer:
         # Prepare metadata
         metadata = {
             'model_name': model_name,
-            'trading_pair': trading_pair,
+            'trading_pair': internal_pair,
             'algorithm': 'xgboost',
             'timestamp': timestamp,
             'saved_at': datetime.now().isoformat(),
@@ -355,13 +350,17 @@ class XGBoostTrainer:
         if not self.mongodb.is_connected:
             await self.mongodb.connect()
         
+        # Normalize for DB lookup
+        api_pair = to_api_asset(trading_pair) or trading_pair
+        internal_pair = normalize_internal(trading_pair) or trading_pair
+        
         # Check for new data since last training
-        query = {"trading_pair": trading_pair}
+        query = {"trading_pair": api_pair}
         if last_trained_timestamp:
             query["timestamp"] = {"$gt": last_trained_timestamp}
         
         # Count new candles
-        new_candles_count = await self.mongodb.db.candle_data.count_documents(query)
+        new_candles_count = await self.mongodb.db.candles.count_documents(query)
         
         # Check if we have enough new data
         if new_candles_count >= self.min_samples_for_retraining:
@@ -371,8 +370,8 @@ class XGBoostTrainer:
         # Check for market volatility if we have a last training timestamp
         if last_trained_timestamp:
             # Get recent candles
-            recent_candles = await self.mongodb.db.candle_data.find(
-                {"trading_pair": trading_pair},
+            recent_candles = await self.mongodb.db.candles.find(
+                {"trading_pair": api_pair},
                 sort=[("timestamp", -1)],
                 limit=100
             ).to_list(length=100)
@@ -389,7 +388,7 @@ class XGBoostTrainer:
                     logger.info(f"🔄 Retraining recommended: High volatility ({volatility:.4f})")
                     return True
         
-        logger.info(f"✅ No retraining needed: {new_candles_count} new candles")
+        logger.info(f"✅ No retraining needed for {internal_pair}: {new_candles_count} new candles")
         return False
     
     async def find_latest_model(self, trading_pair: str) -> str:
@@ -403,8 +402,9 @@ class XGBoostTrainer:
             Model name or None if not found
         """
         try:
-            # List models from cloud storage filtered by trading pair
-            models = await self.storage_service.list_models(trading_pair=trading_pair, algorithm="xgboost")
+            # List models from cloud storage filtered by internal trading pair
+            internal_pair = normalize_internal(trading_pair) or trading_pair
+            models = await self.storage_service.list_models(trading_pair=internal_pair, algorithm="xgboost")
             
             if not models:
                 logger.info(f"No models found for {trading_pair}")

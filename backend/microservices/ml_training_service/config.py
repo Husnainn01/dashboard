@@ -6,9 +6,9 @@ import os
 from pathlib import Path
 
 # Trading Configuration
-# Focusing exclusively on USD/BRL(OTC) for improved prediction accuracy
+# Default trading pair used consistently across services (no formatting conversions)
 DEFAULT_TRADING_PAIRS = [
-    "USD/BRL(OTC)"
+    "BRLUSD_otc"
 ]
 
 # Disabled pairs (kept for reference)
@@ -28,7 +28,7 @@ AUTO_TRAINING = {
     "enabled": os.environ.get("AUTO_TRAINING_ENABLED", "true").lower() == "true",
     "schedule_interval_hours": int(os.environ.get("AUTO_TRAINING_INTERVAL", "12")),  # Retrain more frequently (every 12 hours)
     "min_new_samples": int(os.environ.get("AUTO_TRAINING_MIN_NEW_SAMPLES", "30")),  # Lower threshold to train more often
-    "trading_pairs": DEFAULT_TRADING_PAIRS,  # Only USD/BRL(OTC)
+    "trading_pairs": DEFAULT_TRADING_PAIRS,
     "model_types": ["xgboost", "random_forest", "lightgbm"],  # Added LightGBM for better performance
     "max_concurrent_jobs": 3,  # Increased concurrent jobs for more thorough hyperparameter search
     "cross_validation_folds": 5,  # Use 5-fold cross-validation
@@ -61,7 +61,7 @@ MODEL_VERSIONING = {
 
 # Data Retention Configuration
 DATA_RETENTION = {
-    "retention_days": int(os.environ.get("DATA_RETENTION_DAYS", "90")),  # Keep data for 90 days by default
+    "retention_days": int(os.environ.get("DATA_RETENTION_DAYS", "210")),  # Keep data for ~7 months by default
     "enable_auto_cleanup": True,  # Automatically clean up old data
     "cleanup_interval_hours": 24,  # Run cleanup every 24 hours
 }

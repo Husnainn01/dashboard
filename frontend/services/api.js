@@ -4,19 +4,40 @@
  * Updated for microservices architecture
  */
 
-// API base URL - Updated to API Gateway port 5001
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://apigatewayfront-end-production.up.railway.app';
-console.log('🔌 API Service loaded - API Gateway:', API_BASE_URL);
+// Dynamic base URLs with runtime override via localStorage
+const getApiBase = () => {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('api_base_url');
+    if (stored) return stored;
+  }
+  return process.env.NEXT_PUBLIC_API_URL || '';
+};
 
-// WebSocket URL - Updated to API Gateway
-const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://apigatewayfront-end-production.up.railway.app';
-console.log('📡 WebSocket URL:', WS_BASE_URL);
+const getWsBase = () => {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('ws_base_url');
+    if (stored) return stored;
+  }
+  return process.env.NEXT_PUBLIC_WS_URL || '';
+};
 
-// Base API URL
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://apigatewayfront-end-production.up.railway.app';
+export const setApiBaseUrl = (url) => {
+  if (typeof window !== 'undefined') {
+    if (url) localStorage.setItem('api_base_url', url); else localStorage.removeItem('api_base_url');
+  }
+};
+
+export const setWsBaseUrl = (url) => {
+  if (typeof window !== 'undefined') {
+    if (url) localStorage.setItem('ws_base_url', url); else localStorage.removeItem('ws_base_url');
+  }
+};
+
+console.log('🔌 API Service base:', getApiBase() || '(unset)');
+console.log('📡 WebSocket base:', getWsBase() || '(unset)');
 
 // ML Training Service URL (direct access)
-const ML_TRAINING_URL = 'https://ml-traning-service-production.up.railway.app';
+const ML_TRAINING_URL = process.env.NEXT_PUBLIC_ML_TRAINING_URL || '';
 
 /**
  * Generic API request handler with error handling
@@ -30,7 +51,7 @@ const apiRequest = async (endpoint, options = {}) => {
     const cacheBuster = options.method === 'GET' ? `${endpoint.includes('?') ? '&' : '?'}_t=${Date.now()}` : '';
     
     // Construct full URL
-    const url = `${API_URL}${endpoint}${cacheBuster}`;
+    const url = `${getApiBase()}${endpoint}${cacheBuster}`;
     console.log(`🔌 API Request: ${options.method || 'GET'} ${url}`);
     
     // Set default headers
@@ -217,9 +238,10 @@ export const getModelsInfo = async () => {
 export const getModelsForPair = async (tradingPair) => {
   try {
     console.log(`🔍 Fetching models for pair: ${tradingPair}`);
-    console.log(`🔗 API URL: ${API_BASE_URL}/ml/models/${encodeURIComponent(tradingPair)}`);
+    const base = getApiBase();
+    console.log(`🔗 API URL: ${base}/ml/models/${encodeURIComponent(tradingPair)}`);
     
-    const response = await fetch(`${API_BASE_URL}/ml/models/${encodeURIComponent(tradingPair)}`);
+    const response = await fetch(`${base}/ml/models/${encodeURIComponent(tradingPair)}`);
     console.log(`📊 Response status: ${response.status}`);
     
     if (!response.ok) {
@@ -355,25 +377,19 @@ export const selectModel = async (tradingPair, modelName, modelType = null) => {
  * Create WebSocket connection for predictions
  * @returns {WebSocket} WebSocket connection
  */
-export const createPredictionWebSocket = () => {
-  return new WebSocket(`${WS_BASE_URL}/ws/predictions`);
-};
+export const createPredictionWebSocket = () => new WebSocket(`${getWsBase()}/ws/predictions`);
 
 /**
  * Create WebSocket connection for market data
  * @returns {WebSocket} WebSocket connection
  */
-export const createMarketDataWebSocket = () => {
-  return new WebSocket(`${WS_BASE_URL}/ws/market-data`);
-};
+export const createMarketDataWebSocket = () => new WebSocket(`${getWsBase()}/ws/market-data`);
 
 /**
  * Create unified WebSocket connection
  * @returns {WebSocket} WebSocket connection
  */
-export const createUnifiedWebSocket = () => {
-  return new WebSocket(`${WS_BASE_URL}/ws`);
-};
+export const createUnifiedWebSocket = () => new WebSocket(`${getWsBase()}/ws`);
 
 // =============================================================================
 // LEGACY COMPATIBILITY
