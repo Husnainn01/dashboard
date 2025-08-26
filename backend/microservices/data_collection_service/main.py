@@ -677,22 +677,29 @@ class ContinuousDataService:
                 else:
                     logger.warning("⚠️ Historical data collection not supported by collector")
 
-            # After forward gap fill, ensure we have at least historical_data_days of total history by extending earlier than oldest if needed
+            # After forward gap fill, ensure we have at least historical_data_days of total history
+            # Find the OLDEST candle for THIS trading pair and timeframe (not global oldest)
             try:
-                stats = await self.mongodb.get_stats()
-                oldest_iso = stats.get('candles', {}).get('oldest') if isinstance(stats, dict) else None
-                oldest_ts = datetime.fromisoformat(oldest_iso) if oldest_iso else None
+                cursor = self.mongodb.db.candles.find({
+                    "trading_pair": self.priority_pair,
+                    "period": self.timeframe
+                }).sort("timestamp", 1).limit(1)
+                docs = await cursor.to_list(length=1)
+                oldest_ts = docs[0]["timestamp"] if docs else None
             except Exception as e:
-                logger.warning(f"⚠️ Could not get DB stats for oldest candle: {e}")
+                logger.warning(f"⚠️ Could not query oldest candle for {self.priority_pair}: {e}")
                 oldest_ts = None
 
             if oldest_ts:
                 desired_start = now_ts - timedelta(days=self.historical_data_days)
-                if oldest_ts > desired_start:
-                    # Need to go further back from the current oldest boundary
+                # Loop until we have reached the desired_start (accounting for API per-request limits)
+                max_loops = 200  # safety guard
+                loop_count = 0
+                total_added = 0
+                while oldest_ts and oldest_ts > desired_start and loop_count < max_loops:
                     need_seconds = int((oldest_ts - desired_start).total_seconds())
                     additional_days = max(1, (need_seconds + 86399) // 86400)
-                    logger.info(f"📚 Extending history by ~{additional_days} day(s) prior to oldest {oldest_ts.isoformat()} for {self.priority_pair}")
+                    logger.info(f"📚 Extending history (loop {loop_count+1}) by ~{additional_days} day(s) prior to oldest {oldest_ts.isoformat()} for {self.priority_pair}")
                     if hasattr(self.collector, 'get_historical_candles'):
                         try:
                             more_candles = await self.collector.get_historical_candles(
@@ -701,12 +708,30 @@ class ContinuousDataService:
                                 timeframe=self.timeframe,
                                 end_from_time=int(oldest_ts.timestamp())
                             )
-                            if more_candles:
-                                logger.info(f"✅ Collected {len(more_candles)} additional older candles for {self.priority_pair}")
+                            got = len(more_candles) if more_candles else 0
+                            total_added += got
+                            if got:
+                                logger.info(f"✅ Collected {got} additional older candles for {self.priority_pair} (total_added={total_added})")
                                 if hasattr(self.collector, 'process_historical_candles'):
                                     await self.collector.process_historical_candles(more_candles, self.priority_pair)
+                                # Re-query new oldest after insert
+                                try:
+                                    cursor = self.mongodb.db.candles.find({
+                                        "trading_pair": self.priority_pair,
+                                        "period": self.timeframe
+                                    }).sort("timestamp", 1).limit(1)
+                                    docs = await cursor.to_list(length=1)
+                                    oldest_ts = docs[0]["timestamp"] if docs else None
+                                except Exception as qe:
+                                    logger.warning(f"⚠️ Could not refresh oldest timestamp: {qe}")
+                                    break
+                            else:
+                                logger.info("ℹ️ No additional older candles returned; stopping extension loop")
+                                break
                         except Exception as ee:
                             logger.warning(f"⚠️ Failed to collect additional older history: {ee}")
+                            break
+                    loop_count += 1
             else:
                 logger.info("ℹ️ No oldest timestamp available; skipping early extension step")
 
