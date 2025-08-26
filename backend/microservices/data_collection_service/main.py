@@ -52,6 +52,8 @@ async def lifespan(app: FastAPI):
     # Auto-start data collection if configured
     if os.environ.get("AUTO_START_DATA_COLLECTION", "true").lower() == "true":
         logger.info("🔄 Auto-starting data collection...")
+        # Ensure the run loop actually starts
+        data_service_running = True
         asyncio.create_task(run_data_service())
     
     yield
@@ -1067,7 +1069,10 @@ async def initialize_service():
     global mongodb_manager
     
     # Initialize MongoDB connection
-    mongodb_uri = "mongodb+srv://dash:JBuim9uQ8CbXPd1K@dashbaord.zsslbre.mongodb.net/otc-predictor"
+    mongodb_uri = os.environ.get(
+        "MONGODB_URI",
+        "mongodb+srv://dash:JBuim9uQ8CbXPd1K@dashbaord.zsslbre.mongodb.net/otc-predictor"
+    )
     logger.info(f"Using MongoDB URI: {mongodb_uri}")
     mongodb_manager = MongoDBManager(uri=mongodb_uri)
     if not await mongodb_manager.connect():
