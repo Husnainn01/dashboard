@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any
 import time
 import json
+import os
 
 # PyQuotex imports
 from pyquotex.stable_api import Quotex
@@ -413,22 +414,30 @@ class DataCollector:
                 self.logger.warning(f"⚠️ Could not resolve historical symbol '{symbol}': {e}")
             
             total_seconds = max(1, int(days) * 86400)
-            chunk_seconds = 21600  # 6 hours per request to avoid huge payloads
+            # API expects 'offset' as the NUMBER OF CANDLES, not seconds. Use a sane chunk of candles per request.
+            # Default: 6 hours worth of candles at given timeframe
+            default_chunk_seconds = 21600  # 6 hours window
+            chunk_candles_default = max(1, default_chunk_seconds // int(timeframe))
+            max_candles_per_req = int(os.getenv("QX_MAX_CANDLES_PER_REQUEST", str(chunk_candles_default)))
             # Allow callers to specify an end timestamp to walk back from
             end_from_time = int(end_from_time) if end_from_time is not None else int(time.time())
             collected: List[Dict[str, Any]] = []
-            covered = 0
+            covered_seconds = 0
             
             self.logger.info(f"📚 Fetching ~{days} day(s) of historical data for {symbol} at {timeframe}s timeframe")
-            while covered < total_seconds:
-                offset = min(chunk_seconds, total_seconds - covered)
+            while covered_seconds < total_seconds:
+                remaining_seconds = total_seconds - covered_seconds
+                remaining_candles = max(1, remaining_seconds // int(timeframe))
+                offset_candles = int(min(max_candles_per_req, remaining_candles))
                 try:
-                    self.logger.info(f"📚 Historical chunk: symbol={symbol} period={timeframe}s offset={offset}s end={end_from_time}")
-                    data = await self.client.get_candles(symbol, end_from_time, offset, timeframe)
+                    self.logger.info(f"📚 Historical chunk: symbol={symbol} period={timeframe}s offset_candles={offset_candles} end={end_from_time}")
+                    data = await self.client.get_candles(symbol, end_from_time, offset_candles, timeframe)
                     if data:
                         collected.extend(data)
-                    end_from_time -= offset
-                    covered += offset
+                    # Move the window back by the number of candles fetched
+                    delta_seconds = offset_candles * int(timeframe)
+                    end_from_time -= delta_seconds
+                    covered_seconds += delta_seconds
                     await asyncio.sleep(0.2)
                 except json.JSONDecodeError as je:
                     self.logger.warning(f"⚠️ JSON decode error on historical chunk: {je}. Reconnecting and retrying chunk once...")
