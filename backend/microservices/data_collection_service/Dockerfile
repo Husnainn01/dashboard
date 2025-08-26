@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY microservices/data_collection_service /app/microservices/data_collection_service/
 COPY data_collection /app/data_collection/
 COPY database /app/database/
+COPY shared /app/shared/
 COPY config.py /app/
 
 # Create necessary directories
