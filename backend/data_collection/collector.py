@@ -41,6 +41,7 @@ class DataCollector:
         self.trading_pairs = []  # Will be populated from config
         self.timeframe = 60  # 1 minute candles (60 seconds)
         self.collection_interval = 60  # Collect every 60 seconds
+        self.last_domain_used: Optional[str] = None  # Track which base domain worked
         
         # Storage
         # Use provided MongoDB connection if available, otherwise create a new one
@@ -137,42 +138,61 @@ class DataCollector:
                     lang="en"  # English language
                 )
             
-            # Monkey patch the Login class to use the correct domain
+            # Monkey patch the Login class to try multiple base domains
             from pyquotex.http.login import Login
-            
-            # Store original values
-            original_base_url = Login.base_url
-            original_https_base_url = Login.https_base_url
-            
-            # Patch Login class to use the correct domain (configurable via env QUOTEX_BASE_DOMAIN)
             import os
-            base_domain = os.getenv('QUOTEX_BASE_DOMAIN', 'qxbroker.com')
-            Login.base_url = base_domain
-            Login.https_base_url = f'https://{base_domain}'
-            
-            try:
-                # Now connect normally - the Login class will use the correct domain
+            # Prefer QUOTEX_BASE_DOMAINS (comma-separated). Fallback to QUOTEX_BASE_DOMAIN. Defaults: quotex.com,qxbroker.com
+            domains_env = os.getenv('QUOTEX_BASE_DOMAINS')
+            if domains_env:
+                domains = [d.strip() for d in domains_env.split(',') if d.strip()]
+            else:
+                single = os.getenv('QUOTEX_BASE_DOMAIN')
+                if single:
+                    domains = [single.strip()]
+                else:
+                    domains = ['quotex.com', 'qxbroker.com']
+
+            check_connect = False
+            message = "No domains attempted"
+            for base_domain in domains:
+                # Store original values for each attempt
+                original_base_url = Login.base_url
+                original_https_base_url = Login.https_base_url
+                # Patch Login for this attempt
+                Login.base_url = base_domain
+                Login.https_base_url = f'https://{base_domain}'
+                self.logger.info(f"🌐 Attempting PyQuotex login via domain: {base_domain}")
                 try:
                     try:
                         check_connect, message = await self.client.connect()
                     except SystemExit:
                         self.logger.error("❌ PyQuotex login attempted to exit the application")
-                        return False, "Login failed with SystemExit"
+                        check_connect, message = False, "Login failed with SystemExit"
                 except json.JSONDecodeError as json_err:
-                    self.logger.error(f"❌ JSON parsing error during connection: {str(json_err)}")
-                    # Wait a moment and retry once
+                    self.logger.error(f"❌ JSON parsing error during connection via {base_domain}: {str(json_err)}")
+                    # Wait a moment and retry once on the same domain
                     self.logger.info("🔄 Retrying connection after JSON error...")
                     await asyncio.sleep(3)
                     try:
                         check_connect, message = await self.client.connect()
                     except SystemExit:
                         self.logger.error("❌ PyQuotex login attempted to exit the application")
-                        return False, "Login failed with SystemExit"
-            finally:
-                # Restore original values (good practice)
-                Login.base_url = original_base_url
-                Login.https_base_url = original_https_base_url
-            
+                        check_connect, message = False, "Login failed with SystemExit"
+                except Exception as e:
+                    self.logger.error(f"❌ Unexpected connection error via {base_domain}: {e}")
+                    check_connect, message = False, str(e)
+                finally:
+                    # Restore original values (good practice)
+                    Login.base_url = original_base_url
+                    Login.https_base_url = original_https_base_url
+
+                if check_connect:
+                    self.last_domain_used = base_domain
+                    self.logger.info(f"✅ Connected via domain: {base_domain}")
+                    break
+                else:
+                    self.logger.warning(f"⚠️ Login failed via domain {base_domain}: {message}")
+
             if check_connect:
                 self.is_connected = True
                 self.logger.info(f"✅ Connected to PyQuotex: {message}")
