@@ -213,15 +213,30 @@ class DataCollector:
             self.logger.error(f"❌ Connection error: {str(e)}")
             return False, str(e)
     
-    async def disconnect(self):
-        """Disconnect from PyQuotex and MongoDB"""
-        if self.client and self.is_connected:
-            await self.client.close()
-            self.is_connected = False
-            self.logger.info("🔌 Disconnected from PyQuotex")
-        
-        # Disconnect from MongoDB
-        await self.db.disconnect()
+    async def disconnect(self, close_db: bool = False):
+        """Disconnect from PyQuotex and optionally MongoDB.
+        By default, keep the DB connection open to avoid disrupting the service during reconnects.
+        """
+        try:
+            if self.client and self.is_connected:
+                try:
+                    # Avoid hanging indefinitely on close
+                    await asyncio.wait_for(self.client.close(), timeout=10)
+                except asyncio.TimeoutError:
+                    self.logger.warning("⚠️ Timeout while closing PyQuotex client (10s)")
+                except Exception as ce:
+                    self.logger.warning(f"⚠️ Error while closing PyQuotex client: {ce}")
+                finally:
+                    self.is_connected = False
+                    self.logger.info("🔌 Disconnected from PyQuotex")
+        except Exception as e:
+            self.logger.warning(f"⚠️ Unexpected error during disconnect: {e}")
+
+        if close_db:
+            try:
+                await self.db.disconnect()
+            except Exception as de:
+                self.logger.warning(f"⚠️ Error while disconnecting from MongoDB: {de}")
     
     async def collect_candle_data(self, asset: str) -> Optional[CandleData]:
         """

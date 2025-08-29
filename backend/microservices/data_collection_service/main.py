@@ -487,6 +487,7 @@ class ContinuousDataService:
         ping_interval = 60  # Send ping every 60 seconds
         reconnect_threshold = 180  # Force reconnect if no successful ping for 3 minutes
         hard_watchdog_threshold = 600  # If no successful ping for 10 minutes, perform hard reset
+        ping_failures = 0  # Count consecutive ping failures/timeouts to react faster
         
         try:
             while not self.should_stop:
@@ -505,12 +506,31 @@ class ContinuousDataService:
                             if profile:
                                 logger.info("✅ Ping successful")
                                 last_ping_time = datetime.now()
+                                ping_failures = 0
                             else:
                                 logger.warning("⚠️ Ping returned no data")
+                                ping_failures += 1
                     except asyncio.TimeoutError:
                         logger.warning("⚠️ Ping timed out (10s)")
+                        ping_failures += 1
                     except Exception as e:
                         logger.warning(f"⚠️ Ping failed: {str(e)}")
+                        ping_failures += 1
+
+                # If multiple consecutive ping failures, proactively reconnect sooner
+                if ping_failures >= 3:
+                    logger.warning(f"⚠️ {ping_failures} consecutive ping failures. Proactively reconnecting...")
+                    try:
+                        if self.collector and self.collector.client:
+                            await self.collector.disconnect(close_db=False)
+                        if await self.connect_to_pyquotex():
+                            logger.info("✅ Proactive reconnection successful")
+                            last_ping_time = datetime.now()
+                            ping_failures = 0
+                        else:
+                            logger.error("❌ Proactive reconnection failed")
+                    except Exception as e:
+                        logger.error(f"❌ Proactive reconnection error: {str(e)}")
                 
                 # Force reconnect if we haven't had a successful ping in a while
                 if time_since_last_ping >= reconnect_threshold:
@@ -518,12 +538,13 @@ class ContinuousDataService:
                     try:
                         # Disconnect first
                         if self.collector and self.collector.client:
-                            await self.collector.disconnect()
+                            await self.collector.disconnect(close_db=False)
                         
                         # Then reconnect
                         if await self.connect_to_pyquotex():
                             logger.info("✅ Reconnection successful")
                             last_ping_time = datetime.now()
+                            ping_failures = 0
                         else:
                             logger.error("❌ Reconnection failed")
                     except Exception as e:
@@ -535,7 +556,7 @@ class ContinuousDataService:
                     try:
                         if self.collector:
                             try:
-                                await self.collector.disconnect()
+                                await self.collector.disconnect(close_db=False)
                             except Exception:
                                 pass
                             # Recreate the collector instance to clear any internal stuck state
@@ -547,6 +568,7 @@ class ContinuousDataService:
                         if await self.connect_to_pyquotex():
                             logger.info("✅ Hard reset reconnection successful")
                             last_ping_time = datetime.now()
+                            ping_failures = 0
                         else:
                             logger.error("❌ Hard reset reconnection failed")
                     except Exception as e:
@@ -614,10 +636,16 @@ class ContinuousDataService:
                                     if profile:
                                         logger.info("✅ Sleep period ping successful")
                                         last_ping_time = datetime.now()
+                                        ping_failures = 0
+                                    else:
+                                        logger.warning("⚠️ Sleep period ping returned no data")
+                                        ping_failures += 1
                             except asyncio.TimeoutError:
                                 logger.warning("⚠️ Sleep period ping timed out (10s)")
+                                ping_failures += 1
                             except Exception as e:
                                 logger.warning(f"⚠️ Sleep period ping failed: {str(e)}")
+                                ping_failures += 1
                         
                         await asyncio.sleep(min(2, sleep_time))  # Shorter sleep intervals
                         sleep_time -= 2

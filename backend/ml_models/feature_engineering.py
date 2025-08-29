@@ -1047,7 +1047,7 @@ class FeatureEngineer:
             logger.error(f"❌ Error creating target variable: {str(e)}")
             return np.full(len(close_p), 0.5)
     
-    async def prepare_training_data(self, trading_pair: str = "EURUSD OTC", 
+    async def prepare_training_data(self, trading_pair: str = "BRLUSD", 
                                   limit: int = 1000) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Prepare training data with features and targets
@@ -1056,70 +1056,29 @@ class FeatureEngineer:
             Tuple of (features_df, targets_df)
         """
         
-        logger.info(f"🔄 Preparing training data for {trading_pair}")
+        logger.info(f"🔄 Preparing training data for {trading_pair} (period=60s, strict)")
         
         # Connect to MongoDB if not connected
         if not self.mongodb.is_connected:
             await self.mongodb.connect()
         
-        # Try different formats for the trading pair
-        candles = []
-        tried_formats = []
-        
-        # 1. Try the original format
-        tried_formats.append(trading_pair)
-        candles = await self.mongodb.get_candles_for_training(limit=limit, trading_pair=trading_pair)
-        
-        # 2. If no candles found, try converting to USD/BRL(OTC) format
-        if len(candles) < 50 and " OTC" in trading_pair:
-            # Convert USDBRL OTC to USD/BRL(OTC)
-            base_quote = trading_pair.replace(" OTC", "")
-            if len(base_quote) == 6:  # Standard currency pair length
-                alt_format = f"{base_quote[:3]}/{base_quote[3:]}(OTC)"
-                tried_formats.append(alt_format)
-                logger.info(f"Trying alternative format: {alt_format}")
-                candles = await self.mongodb.get_candles_for_training(limit=limit, trading_pair=alt_format)
-        
-        # 3. If still no candles, try the reverse format
-        if len(candles) < 50 and "/" in trading_pair and "(" in trading_pair:
-            # Convert USD/BRL(OTC) to USDBRL OTC
-            currency_pair = trading_pair.split('(')[0]  # Get USD/BRL
-            base, quote = currency_pair.split('/')      # Split into USD and BRL
-            alt_format = f"{base}{quote} OTC"          # Make USDBRL OTC
-            tried_formats.append(alt_format)
-            logger.info(f"Trying alternative format: {alt_format}")
-            candles = await self.mongodb.get_candles_for_training(limit=limit, trading_pair=alt_format)
-        
-        # 4. If still no candles, try to get all available pairs and find the best match
-        if len(candles) < 50:
-            try:
-                all_pairs_cursor = await self.mongodb.db.candles.distinct("trading_pair")
-                logger.info(f"Available trading pairs in database: {all_pairs_cursor}")
-                
-                # Try each available pair to see if it might match
-                for pair in all_pairs_cursor:
-                    # Skip if we already tried this format
-                    if pair in tried_formats:
-                        continue
-                        
-                    # Check if this pair might be related to our target pair
-                    base_trading_pair = trading_pair.replace(" OTC", "").replace("/", "").replace("(OTC)", "")
-                    base_pair = pair.replace(" OTC", "").replace("/", "").replace("(OTC)", "")
-                    
-                    if base_trading_pair.upper() == base_pair.upper() or base_trading_pair.upper() in base_pair.upper() or base_pair.upper() in base_trading_pair.upper():
-                        logger.info(f"Found potential match: {pair} for {trading_pair}")
-                        tried_formats.append(pair)
-                        candles = await self.mongodb.get_candles_for_training(limit=limit, trading_pair=pair)
-                        if len(candles) >= 50:
-                            logger.info(f"Using trading pair format: {pair}")
-                            break
-            except Exception as e:
-                logger.error(f"Error searching for alternative formats: {str(e)}")
-        
-        logger.info(f"Tried formats: {tried_formats}")
+        # Enforce standard trading pairs only
+        allowed_pairs = {"BRLUSD", "BRLUSD_otc"}
+        if trading_pair not in allowed_pairs:
+            logger.error(
+                f"❌ Invalid trading_pair '{trading_pair}'. Use 'BRLUSD' or 'BRLUSD_otc' only."
+            )
+            return pd.DataFrame(), pd.DataFrame()
+
+        # Single strict fetch via validated DB method (period=60 enforced there)
+        try:
+            candles = await self.mongodb.get_candles_for_training(limit=limit, trading_pair=trading_pair)
+        except Exception as e:
+            logger.error(f"❌ Error fetching candles for {trading_pair}: {str(e)}")
+            return pd.DataFrame(), pd.DataFrame()
         
         if len(candles) < 50:
-            logger.error(f"Insufficient data: {len(candles)} candles")
+            logger.error(f"Insufficient data for {trading_pair} (period=60): {len(candles)} candles")
             return pd.DataFrame(), pd.DataFrame()
         
         # Extract features

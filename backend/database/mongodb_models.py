@@ -485,8 +485,18 @@ class MongoDBManager:
         if not self.is_connected:
             await self.connect()
         
-        # Strict query: only use the exact provided trading_pair
-        query = {"trading_pair": trading_pair}
+        # Enforce standardized trading pairs and 60s period
+        allowed_pairs = {"BRLUSD", "BRLUSD_otc"}
+        if trading_pair not in allowed_pairs:
+            logger.error(
+                f"❌ Invalid trading_pair '{trading_pair}'. Allowed: {sorted(list(allowed_pairs))}"
+            )
+            raise ValueError(
+                f"Invalid trading_pair '{trading_pair}'. Use 'BRLUSD' or 'BRLUSD_otc' only."
+            )
+
+        # Strict query: exact trading_pair and fixed 60-second timeframe
+        query = {"trading_pair": trading_pair, "period": 60}
         if validated_only:
             query["is_validated"] = True
         
@@ -495,14 +505,18 @@ class MongoDBManager:
         candles = await cursor.to_list(length=limit)
         
         if not candles:
-            logger.warning(f"No candles found for trading_pair='{trading_pair}' with validated_only={validated_only}")
+            logger.error(
+                f"❌ No candles found for trading_pair='{trading_pair}', period=60, validated_only={validated_only}"
+            )
             return []
         
         # Normalize ObjectId to string
         for candle in candles:
             candle["_id"] = str(candle["_id"])
         
-        logger.info(f"Found {len(candles)} candles for trading_pair='{trading_pair}' (strict match)")
+        logger.info(
+            f"Found {len(candles)} candles for trading_pair='{trading_pair}', period=60 (strict match)"
+        )
         return candles
     
     async def get_available_trading_pairs(self) -> List[str]:
