@@ -42,6 +42,7 @@ class DataCollector:
         self.timeframe = 60  # 1 minute candles (60 seconds)
         self.collection_interval = 60  # Collect every 60 seconds
         self.last_domain_used: Optional[str] = None  # Track which base domain worked
+        self.original_ws_urls = {}  # Store original WebSocket URLs
         
         # Storage
         # Use provided MongoDB connection if available, otherwise create a new one
@@ -138,7 +139,7 @@ class DataCollector:
                     lang="en"  # English language
                 )
             
-            # Monkey patch the Login class to try multiple base domains
+            # Monkey patch the Login class and WebSocket URLs to try multiple base domains
             from pyquotex.http.login import Login
             import os
             # Prefer QUOTEX_BASE_DOMAINS (comma-separated). Fallback to QUOTEX_BASE_DOMAIN. Defaults: quotex.com,qxbroker.com
@@ -158,9 +159,23 @@ class DataCollector:
                 # Store original values for each attempt
                 original_base_url = Login.base_url
                 original_https_base_url = Login.https_base_url
+                
                 # Patch Login for this attempt
                 Login.base_url = base_domain
                 Login.https_base_url = f'https://{base_domain}'
+                
+                # Also patch WebSocket URLs in the client configuration
+                if hasattr(self.client, 'ws_url'):
+                    original_ws_url = self.client.ws_url
+                    self.client.ws_url = f"wss://ws2.{base_domain}/socket.io/?EIO=3&transport=websocket"
+                    self.logger.info(f"🌐 Patched WebSocket URL to: {self.client.ws_url}")
+                
+                # Patch any other URLs that might be using the domain
+                if hasattr(self.client, 'config') and hasattr(self.client.config, 'ws_url'):
+                    original_config_ws_url = self.client.config.ws_url
+                    self.client.config.ws_url = f"wss://ws2.{base_domain}/socket.io/?EIO=3&transport=websocket"
+                    self.logger.info(f"🌐 Patched config WebSocket URL to: {self.client.config.ws_url}")
+                
                 self.logger.info(f"🌐 Attempting PyQuotex login via domain: {base_domain}")
                 try:
                     try:
@@ -182,13 +197,19 @@ class DataCollector:
                     self.logger.error(f"❌ Unexpected connection error via {base_domain}: {e}")
                     check_connect, message = False, str(e)
                 finally:
-                    # Restore original values (good practice)
-                    Login.base_url = original_base_url
-                    Login.https_base_url = original_https_base_url
+                    if not check_connect:
+                        # Restore original values only if connection failed
+                        Login.base_url = original_base_url
+                        Login.https_base_url = original_https_base_url
+                        if hasattr(self.client, 'ws_url'):
+                            self.client.ws_url = original_ws_url
+                        if hasattr(self.client, 'config') and hasattr(self.client.config, 'ws_url'):
+                            self.client.config.ws_url = original_config_ws_url
 
                 if check_connect:
                     self.last_domain_used = base_domain
                     self.logger.info(f"✅ Connected via domain: {base_domain}")
+                    # Keep the successful domain patched - don't restore the original values
                     break
                 else:
                     self.logger.warning(f"⚠️ Login failed via domain {base_domain}: {message}")
@@ -248,6 +269,7 @@ class DataCollector:
                     self.logger.warning(f"⚠️ Error while closing PyQuotex client: {ce}")
                 finally:
                     self.is_connected = False
+                    # Don't clear last_domain_used so we can use it on reconnect
                     self.logger.info("🔌 Disconnected from PyQuotex")
         except Exception as e:
             self.logger.warning(f"⚠️ Unexpected error during disconnect: {e}")
@@ -266,6 +288,16 @@ class DataCollector:
             if not self.is_connected:
                 self.logger.error("❌ Not connected to PyQuotex")
                 return None
+            
+            # Ensure we're using the last successful domain for WebSocket connections
+            if self.last_domain_used and self.client:
+                # Re-patch WebSocket URLs if needed to ensure consistency with the domain that worked
+                if hasattr(self.client, 'ws_url') and 'ws2.' in self.client.ws_url and self.last_domain_used not in self.client.ws_url:
+                    self.client.ws_url = f"wss://ws2.{self.last_domain_used}/socket.io/?EIO=3&transport=websocket"
+                    self.logger.info(f"🔄 Re-patched WebSocket URL to use successful domain: {self.client.ws_url}")
+                if hasattr(self.client, 'config') and hasattr(self.client.config, 'ws_url') and self.last_domain_used not in self.client.config.ws_url:
+                    self.client.config.ws_url = f"wss://ws2.{self.last_domain_used}/socket.io/?EIO=3&transport=websocket"
+                    self.logger.info(f"🔄 Re-patched config WebSocket URL to use successful domain: {self.client.config.ws_url}")
             
             self.logger.info(f"📊 Collecting candle data for {asset}...")
             
@@ -407,6 +439,16 @@ class DataCollector:
             if not self.is_connected:
                 return None
             
+            # Ensure we're using the last successful domain for WebSocket connections
+            if self.last_domain_used and self.client:
+                # Re-patch WebSocket URLs if needed to ensure consistency with the domain that worked
+                if hasattr(self.client, 'ws_url') and 'ws2.' in self.client.ws_url and self.last_domain_used not in self.client.ws_url:
+                    self.client.ws_url = f"wss://ws2.{self.last_domain_used}/socket.io/?EIO=3&transport=websocket"
+                    self.logger.info(f"🔄 Re-patched WebSocket URL to use successful domain: {self.client.ws_url}")
+                if hasattr(self.client, 'config') and hasattr(self.client.config, 'ws_url') and self.last_domain_used not in self.client.config.ws_url:
+                    self.client.config.ws_url = f"wss://ws2.{self.last_domain_used}/socket.io/?EIO=3&transport=websocket"
+                    self.logger.info(f"🔄 Re-patched config WebSocket URL to use successful domain: {self.client.config.ws_url}")
+            
             # Subscribe to real-time data
             await self.client.subscribe_realtime_candle(asset, self.timeframe)
             
@@ -436,6 +478,16 @@ class DataCollector:
             if not self.is_connected:
                 self.logger.error("❌ Not connected to PyQuotex")
                 return []
+            
+            # Ensure we're using the last successful domain for WebSocket connections
+            if self.last_domain_used and self.client:
+                # Re-patch WebSocket URLs if needed to ensure consistency with the domain that worked
+                if hasattr(self.client, 'ws_url') and 'ws2.' in self.client.ws_url and self.last_domain_used not in self.client.ws_url:
+                    self.client.ws_url = f"wss://ws2.{self.last_domain_used}/socket.io/?EIO=3&transport=websocket"
+                    self.logger.info(f"🔄 Re-patched WebSocket URL to use successful domain: {self.client.ws_url}")
+                if hasattr(self.client, 'config') and hasattr(self.client.config, 'ws_url') and self.last_domain_used not in self.client.config.ws_url:
+                    self.client.config.ws_url = f"wss://ws2.{self.last_domain_used}/socket.io/?EIO=3&transport=websocket"
+                    self.logger.info(f"🔄 Re-patched config WebSocket URL to use successful domain: {self.client.config.ws_url}")
             
             # Normalize to API-style symbol using shared utility
             symbol = to_api_asset(asset) or asset
