@@ -71,6 +71,7 @@ data_retention_service = None
 training_queue = asyncio.Queue()
 training_jobs = {}
 is_training_worker_running = False
+service_ready = False
 trainer_helpers = {}
 
 # Pydantic models
@@ -177,14 +178,16 @@ async def initialize_service():
         # Continue without TTL indexes
     
     logger.info("✅ ML components initialized")
-    
+
     # Start training worker
     start_training_worker()
-    
+
     # Start data retention service if enabled
     if DATA_RETENTION.get("enable_auto_cleanup", True):
         await data_retention_service.start_auto_cleanup()
-    
+
+    global service_ready
+    service_ready = True
     return True
 
 def start_training_worker():
@@ -369,13 +372,24 @@ async def get_status():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    global mongodb_manager
-    
+    global mongodb_manager, service_ready
+
+    if not service_ready:
+        return {
+            "status": "starting",
+            "timestamp": datetime.now().isoformat(),
+            "service": "ml_training",
+            "mongodb_connected": False
+        }
+
+    mongo_connected = mongodb_manager.is_connected if mongodb_manager else False
+    status = "healthy" if mongo_connected else "unhealthy"
+
     return {
-        "status": "healthy",
+        "status": status,
         "timestamp": datetime.now().isoformat(),
         "service": "ml_training",
-        "mongodb_connected": mongodb_manager.is_connected if mongodb_manager else False
+        "mongodb_connected": mongo_connected
     }
 
 @app.get("/models")
@@ -800,7 +814,7 @@ async def startup_event():
     app.start_time = datetime.now()
     
     setup_signal_handlers()
-    await initialize_service()
+    asyncio.create_task(initialize_service())
     
     # Auto-start training worker
     global is_training_worker_running

@@ -126,6 +126,7 @@ model_trainer = None
 feature_engineer = None
 model_selections = {}  # Track user-selected models per trading pair
 model_storage_manager = None
+service_ready = False
 
 # Import prediction manager and parallel processor modules
 import prediction_manager
@@ -201,7 +202,9 @@ async def initialize_service():
     logger.info("✅ ModelTrainerR2 initialized with R2 support")
     
     logger.info("✅ ML components initialized")
-    
+
+    global service_ready
+    service_ready = True
     return True
 
 async def prepare_features_for_prediction(trading_pair: str, lookback_candles: int = 100):
@@ -476,13 +479,24 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    global mongodb_manager
-    
+    global mongodb_manager, service_ready
+
+    if not service_ready:
+        return {
+            "status": "starting",
+            "timestamp": datetime.now().isoformat(),
+            "service": "prediction",
+            "mongodb_connected": False
+        }
+
+    mongo_connected = mongodb_manager.is_connected if mongodb_manager else False
+    status = "healthy" if mongo_connected else "unhealthy"
+
     return {
-        "status": "healthy",
+        "status": status,
         "timestamp": datetime.now().isoformat(),
         "service": "prediction",
-        "mongodb_connected": mongodb_manager.is_connected if mongodb_manager else False
+        "mongodb_connected": mongo_connected
     }
 
 @app.get("/status")
@@ -1473,7 +1487,7 @@ def setup_signal_handlers():
 async def startup_event():
     """Startup event handler"""
     setup_signal_handlers()
-    await initialize_service()
+    asyncio.create_task(initialize_service())
     
     # Auto-start prediction service
     global prediction_service_state

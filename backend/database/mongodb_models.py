@@ -191,7 +191,7 @@ class MongoDBManager:
         try:
             # Create client
             logger.info(f"Connecting to MongoDB at {self.uri}")
-            self.client = motor.motor_asyncio.AsyncIOMotorClient(self.uri)
+            self.client = motor.motor_asyncio.AsyncIOMotorClient(self.uri, serverSelectionTimeoutMS=5000)
             
             # Get database
             self.db = self.client[self.db_name]

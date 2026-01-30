@@ -41,6 +41,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Service readiness flag - set to True after initialize_service() completes
+service_ready = False
+
 # Define lifespan context manager for FastAPI
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -48,7 +51,7 @@ async def lifespan(app: FastAPI):
     global mongodb_manager, data_service_running
     
     logger.info("🚀 Starting Data Collection Service...")
-    await initialize_service()
+    asyncio.create_task(initialize_service())
     
     # Auto-start data collection if configured
     if os.environ.get("AUTO_START_DATA_COLLECTION", "true").lower() == "true":
@@ -827,13 +830,25 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    global mongodb_manager, data_service
-    
+    global mongodb_manager, data_service, service_ready
+
+    if not service_ready:
+        return {
+            "status": "starting",
+            "timestamp": datetime.now().isoformat(),
+            "service": "data_collection",
+            "mongodb_connected": False,
+            "data_service_running": False
+        }
+
+    mongo_connected = mongodb_manager.is_connected if mongodb_manager else False
+    status = "healthy" if mongo_connected else "unhealthy"
+
     return {
-        "status": "healthy",
+        "status": status,
         "timestamp": datetime.now().isoformat(),
         "service": "data_collection",
-        "mongodb_connected": mongodb_manager.is_connected if mongodb_manager else False,
+        "mongodb_connected": mongo_connected,
         "data_service_running": data_service.is_running if data_service else False
     }
 
@@ -1118,8 +1133,8 @@ async def run_data_service():
 
 async def initialize_service():
     """Initialize the service"""
-    global mongodb_manager
-    
+    global mongodb_manager, service_ready
+
     # Initialize MongoDB connection
     mongodb_uri = os.environ.get("MONGODB_URI", "")
     if not mongodb_uri:
@@ -1130,8 +1145,9 @@ async def initialize_service():
     if not await mongodb_manager.connect():
         logger.error("❌ Failed to connect to MongoDB")
         return False
-    
+
     logger.info("✅ MongoDB connected successfully")
+    service_ready = True
     return True
 
 def setup_signal_handlers():
