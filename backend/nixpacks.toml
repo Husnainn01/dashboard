@@ -1,0 +1,10 @@
+# Use Docker build with Railway
+[variables]
+NODE_VERSION = "20"
+PYTHON_VERSION = "3.9"
+
+[build]
+dockerfile = "Dockerfile"
+
+[start]
+cmd = "npm start" 

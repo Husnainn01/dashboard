@@ -544,14 +544,24 @@ async def train_model(request: TrainingRequest):
 
 @app.get("/train/status/{job_id}")
 async def get_training_status(job_id: str):
-    """Get status of a training job"""
+    """Get status of a training job (returns only JSON-safe fields)"""
     global training_jobs
-    
+
     job = training_jobs.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Training job {job_id} not found")
-    
-    return job
+
+    # Return only JSON-safe fields (avoid serializing model objects, datetime, etc.)
+    return {
+        "job_id": job.get("job_id"),
+        "trading_pair": job.get("trading_pair"),
+        "model_type": job.get("model_type"),
+        "status": job.get("status"),
+        "error": job.get("error"),
+        "submitted_at": job["submitted_at"].isoformat() if job.get("submitted_at") else None,
+        "started_at": job["started_at"].isoformat() if job.get("started_at") else None,
+        "completed_at": job["completed_at"].isoformat() if job.get("completed_at") else None,
+    }
 
 @app.post("/train-all")
 async def train_all_models(model_type: str = "xgboost", force_retrain: bool = False):

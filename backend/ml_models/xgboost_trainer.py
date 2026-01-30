@@ -73,7 +73,6 @@ class XGBoostTrainer:
             'objective': 'binary:logistic',
             'eval_metric': 'logloss',
             'random_state': 42,
-            'early_stopping_rounds': 20,   # Stop if no improvement for 20 rounds
             'n_jobs': -1                   # Use all cores
         }
         
@@ -149,12 +148,14 @@ class XGBoostTrainer:
             # Create and train model
             model = await self.create_model()
             
-            # Train with early stopping
+            # Train with early stopping via callbacks (XGBoost 2.0+ API)
+            from xgboost import callback as xgb_cb
             eval_set = [(X_train_scaled, y_train), (X_test_scaled, y_test)]
             model.fit(
                 X_train_scaled, y_train,
                 eval_set=eval_set,
-                verbose=False
+                verbose=False,
+                callbacks=[xgb_cb.EarlyStopping(rounds=20, save_best=True)]
             )
             
             # Make predictions

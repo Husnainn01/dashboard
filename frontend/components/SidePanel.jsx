@@ -172,12 +172,14 @@ export default function SidePanel({
           setTrainError('Training timed out. Check server logs.');
         }
       } catch (e) {
-        // Job might not be found yet, keep polling
-        if (attempts > 60) {
+        console.warn(`Poll attempt ${attempts} failed:`, e?.message || e);
+        // Stop after 10 consecutive failures (not just 60 attempts)
+        if (attempts > 20) {
           clearInterval(pollRef.current);
           pollRef.current = null;
           setIsTraining(false);
           setTrainMsg(null);
+          setTrainError('Could not get training status. Check server logs.');
         }
       }
     }, 5000);
