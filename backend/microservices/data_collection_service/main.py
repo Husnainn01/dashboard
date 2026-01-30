@@ -605,8 +605,9 @@ class ContinuousDataService:
                 if success:
                     last_ping_time = datetime.now()
                     ping_failures = 0
-                    # Auto-detect and fill any data gaps
-                    await self.detect_and_fill_gaps()
+                    # Auto-detect and fill gaps every 10 cycles (~10 min) instead of every cycle
+                    if self.stats['successful_collections'] % 10 == 0:
+                        await self.detect_and_fill_gaps()
                 else:
                     ping_failures += 1
                 
@@ -630,17 +631,21 @@ class ContinuousDataService:
             await self.shutdown()
             
     async def detect_and_fill_gaps(self):
-        """Detect gaps in candle data and auto-repair by backfilling missing candles"""
+        """Detect gaps in candle data and auto-repair by backfilling missing candles.
+        Only runs a real backfill when the gap is significant (>5 min).
+        Fetches proportional to the actual gap size, not full days."""
         try:
             latest = await self.mongodb.get_candles(trading_pair=self.priority_pair, limit=1)
             if not latest:
                 return
             gap_seconds = (datetime.now() - latest[0]["timestamp"]).total_seconds()
-            if gap_seconds > 120:  # More than 2 minutes behind
-                gap_days = max(1, int(gap_seconds / 86400) + 1)
-                logger.warning(f"Gap detected: {gap_seconds:.0f}s behind. Backfilling {gap_days} day(s)...")
+            # Only act on gaps > 5 minutes (small gaps are normal during collection)
+            if gap_seconds > 300:
+                # Fetch proportional amount — convert gap to fractional days (minimum 0.01 ≈ 15 min)
+                gap_days_fractional = max(0.01, gap_seconds / 86400)
+                logger.warning(f"Gap detected: {gap_seconds:.0f}s behind. Backfilling ~{gap_seconds/60:.0f} minutes...")
                 candles = await self.collector.get_historical_candles(
-                    asset=self.priority_pair, days=gap_days, timeframe=self.timeframe
+                    asset=self.priority_pair, days=gap_days_fractional, timeframe=self.timeframe
                 )
                 if candles:
                     saved = await self.collector.process_historical_candles(candles, self.priority_pair)
@@ -649,14 +654,24 @@ class ContinuousDataService:
             logger.error(f"Error in gap detection: {e}")
 
     async def collect_historical_data(self):
-        """Collect historical data for USD/BRL(OTC)"""
+        """Collect historical data for USD/BRL(OTC).
+
+        Phase 1: Fill forward gap (latest candle → now).
+        Phase 2: Extend backward (oldest candle → desired start) — only if Phase 1
+                 didn't already cover it.
+
+        Skips entirely if data is <5 minutes stale (normal real-time lag).
+        """
         try:
             # Feature flag to quickly disable historical backfill if it interferes with other services
             if os.environ.get("ENABLE_HISTORICAL_BACKFILL", "true").lower() != "true":
                 logger.info("⏭️ Historical backfill disabled via ENABLE_HISTORICAL_BACKFILL=false")
                 return
-            # Determine missing window by looking at latest stored candle
+
             now_ts = datetime.now()
+            base_pair = self.priority_pair
+
+            # Query latest candle to see how far behind we are
             latest = []
             try:
                 latest = await self.mongodb.get_candles(
@@ -666,42 +681,44 @@ class ContinuousDataService:
             except Exception as e:
                 logger.warning(f"⚠️ Could not query latest candle: {e}")
 
-            latest_ts = None
-            if latest:
-                latest_ts = latest[0].get("timestamp")
+            latest_ts = latest[0].get("timestamp") if latest else None
 
-            # Compute how many days are actually missing
-            missing_days = self.historical_data_days
+            # --- Phase 1: Forward fill (latest candle → now) ---
             if latest_ts:
-                delta_sec = max(0, int((now_ts - latest_ts).total_seconds()))
-                missing_days = (delta_sec + 86399) // 86400  # ceil to days
-
-            if missing_days <= 0:
-                logger.info(f"✅ Historical data up-to-date for {self.priority_pair}; skipping backfill")
-            else:
-                logger.info(f"📚 Collecting {missing_days} missing day(s) of historical data for {self.priority_pair}...")
-
-                # Use priority pair directly (already API-style, e.g., BRLUSD_otc)
-                base_pair = self.priority_pair
-
-                # Attempt to collect historical data for missing window only (forward gap fill)
-                if hasattr(self.collector, 'get_historical_candles'):
+                gap_seconds = max(0, int((now_ts - latest_ts).total_seconds()))
+                # Skip if data is less than 5 minutes stale — normal real-time lag
+                if gap_seconds < 300:
+                    logger.info(f"✅ Historical data is fresh ({gap_seconds}s behind) for {self.priority_pair}; skipping forward fill")
+                else:
+                    forward_days = gap_seconds / 86400  # fractional days
+                    logger.info(f"📚 Forward fill: {gap_seconds/3600:.1f} hours of missing data for {self.priority_pair}...")
                     historical_candles = await self.collector.get_historical_candles(
                         asset=base_pair,
-                        days=missing_days,
+                        days=forward_days,
                         timeframe=self.timeframe
                     )
-                    if historical_candles and len(historical_candles) > 0:
-                        logger.info(f"✅ Collected {len(historical_candles)} historical candles for {self.priority_pair}")
-                        if hasattr(self.collector, 'process_historical_candles'):
-                            await self.collector.process_historical_candles(historical_candles, base_pair)
+                    if historical_candles:
+                        logger.info(f"✅ Collected {len(historical_candles)} candles (forward fill)")
+                        await self.collector.process_historical_candles(historical_candles, base_pair)
                     else:
-                        logger.warning(f"⚠️ No historical data collected for {self.priority_pair}")
+                        logger.warning(f"⚠️ No historical data returned for forward fill")
+            else:
+                # No data at all — fetch the full historical window
+                logger.info(f"📚 No existing data. Collecting {self.historical_data_days} days of history for {self.priority_pair}...")
+                historical_candles = await self.collector.get_historical_candles(
+                    asset=base_pair,
+                    days=self.historical_data_days,
+                    timeframe=self.timeframe
+                )
+                if historical_candles:
+                    logger.info(f"✅ Collected {len(historical_candles)} candles (initial backfill)")
+                    await self.collector.process_historical_candles(historical_candles, base_pair)
                 else:
-                    logger.warning("⚠️ Historical data collection not supported by collector")
+                    logger.warning(f"⚠️ No historical data collected for {self.priority_pair}")
+                # No Phase 2 needed — we just fetched the full window
+                return
 
-            # After forward gap fill, ensure we have at least historical_data_days of total history
-            # Find the OLDEST candle for THIS trading pair and timeframe (not global oldest)
+            # --- Phase 2: Backward extension (oldest candle → desired start) ---
             try:
                 cursor = self.mongodb.db.candles.find({
                     "trading_pair": self.priority_pair,
@@ -715,27 +732,27 @@ class ContinuousDataService:
 
             if oldest_ts:
                 desired_start = now_ts - timedelta(days=self.historical_data_days)
-                if oldest_ts > desired_start:
-                    # Need to go further back from the current oldest boundary (single-shot)
-                    need_seconds = int((oldest_ts - desired_start).total_seconds())
-                    additional_days = max(1, (need_seconds + 86399) // 86400)
-                    logger.info(f"📚 Extending history by ~{additional_days} day(s) prior to oldest {oldest_ts.isoformat()} for {self.priority_pair}")
-                    if hasattr(self.collector, 'get_historical_candles'):
-                        try:
-                            more_candles = await self.collector.get_historical_candles(
-                                asset=self.priority_pair,
-                                days=additional_days,
-                                timeframe=self.timeframe,
-                                end_from_time=int(oldest_ts.timestamp())
-                            )
-                            if more_candles:
-                                logger.info(f"✅ Collected {len(more_candles)} additional older candles for {self.priority_pair}")
-                                if hasattr(self.collector, 'process_historical_candles'):
-                                    await self.collector.process_historical_candles(more_candles, self.priority_pair)
-                        except Exception as ee:
-                            logger.warning(f"⚠️ Failed to collect additional older history: {ee}")
+                gap_back_seconds = int((oldest_ts - desired_start).total_seconds())
+                # Only extend if we're missing more than 1 hour of older data
+                if gap_back_seconds > 3600:
+                    additional_days = gap_back_seconds / 86400  # fractional
+                    logger.info(f"📚 Extending history by ~{gap_back_seconds/3600:.1f} hours prior to oldest {oldest_ts.isoformat()}")
+                    try:
+                        more_candles = await self.collector.get_historical_candles(
+                            asset=self.priority_pair,
+                            days=additional_days,
+                            timeframe=self.timeframe,
+                            end_from_time=int(oldest_ts.timestamp())
+                        )
+                        if more_candles:
+                            logger.info(f"✅ Collected {len(more_candles)} additional older candles")
+                            await self.collector.process_historical_candles(more_candles, self.priority_pair)
+                    except Exception as ee:
+                        logger.warning(f"⚠️ Failed to collect additional older history: {ee}")
+                else:
+                    logger.info(f"✅ History extends far enough back ({oldest_ts.isoformat()}); skipping backward extension")
             else:
-                logger.info("ℹ️ No oldest timestamp available; skipping early extension step")
+                logger.info("ℹ️ No oldest timestamp available; skipping backward extension")
 
         except Exception as e:
             logger.error(f"❌ Error collecting historical data: {str(e)}")

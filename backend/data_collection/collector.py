@@ -471,9 +471,10 @@ class DataCollector:
             self.logger.error(f"❌ Error getting real-time data for {asset}: {str(e)}")
             return None
     
-    async def get_historical_candles(self, asset: str, days: int = 1, timeframe: int = 60, end_from_time: Optional[int] = None) -> List[Dict[str, Any]]:
+    async def get_historical_candles(self, asset: str, days: float = 1, timeframe: int = 60, end_from_time: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Retrieve historical candles for an asset by chunking calls to client.get_candles.
+        `days` can be fractional (e.g. 0.01 ≈ 15 minutes).
         Returns a list of raw candle dicts as provided by the API.
         """
         try:
@@ -502,7 +503,7 @@ class DataCollector:
             except Exception as e:
                 self.logger.warning(f"⚠️ Could not resolve historical symbol '{symbol}': {e}")
             
-            total_seconds = max(1, int(days) * 86400)
+            total_seconds = max(60, int(float(days) * 86400))
             # API expects 'offset' as the NUMBER OF CANDLES, not seconds. Use a sane chunk of candles per request.
             # Default: 6 hours worth of candles at given timeframe
             default_chunk_seconds = 21600  # 6 hours window
