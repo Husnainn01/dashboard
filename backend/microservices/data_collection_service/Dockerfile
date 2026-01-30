@@ -28,10 +28,10 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
 # Expose the service port
-EXPOSE 5008
+EXPOSE ${PORT:-5008}
 
 # Set working directory to service directory
 WORKDIR /app/microservices/data_collection_service
 
-# Run the service
+# Run the service (PORT env var is set by Railway)
 CMD ["python", "main.py"]

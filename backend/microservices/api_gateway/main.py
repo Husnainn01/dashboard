@@ -1293,7 +1293,7 @@ def run_service(host: str = "0.0.0.0", port: int = 5001, reload: bool = False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='OTC Predictor API Gateway')
     parser.add_argument('--host', default='0.0.0.0', help='Host to bind to')
-    parser.add_argument('--port', type=int, default=5001, help='Port to bind to')
+    parser.add_argument('--port', type=int, default=int(os.environ.get('PORT', '5001')), help='Port to bind to')
     parser.add_argument('--reload', action='store_true', help='Enable auto-reload')
     
     args = parser.parse_args()

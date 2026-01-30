@@ -41,10 +41,10 @@ ENV STORAGE_TYPE=r2
 ENV USE_CLOUD_STORAGE=true
 
 # Expose the service port
-EXPOSE 5003
+EXPOSE ${PORT:-5003}
 
 # Set working directory to service directory
 WORKDIR /app/microservices/prediction_service
 
-# Run the service
+# Run the service (PORT env var is set by Railway)
 CMD ["python", "main.py"]

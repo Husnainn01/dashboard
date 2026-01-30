@@ -27,10 +27,10 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
 # Expose the service port
-EXPOSE 5002
+EXPOSE ${PORT:-5002}
 
 # Set working directory to service directory
 WORKDIR /app/microservices/ml_training_service
 
-# Run the service
+# Run the service (PORT env var is set by Railway)
 CMD ["python", "main.py"]

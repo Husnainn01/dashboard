@@ -22,10 +22,10 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
 # Expose the service port
-EXPOSE 5001
+EXPOSE ${PORT:-5001}
 
 # Set working directory to service directory
 WORKDIR /app/microservices/api_gateway
 
-# Run the service
+# Run the service (PORT env var is set by Railway)
 CMD ["python", "main.py"]
