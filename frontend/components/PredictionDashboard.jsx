@@ -3,6 +3,8 @@ import SidePanel from './SidePanel';
 import PredictionCard from './PredictionCard';
 import ConnectionStatus from './ConnectionStatus';
 import CandlestickChart from './CandlestickChart';
+import ServiceStatusBar from './ServiceStatusBar';
+import AccuracyTracker from './AccuracyTracker';
 import {
   getHealthStatus,
   createPredictionWebSocket,
@@ -81,7 +83,7 @@ const PredictionDashboard = () => {
   const checkBackendStatus = async () => {
     try {
       const data = await getHealthStatus();
-      setBackendStatus(data.status === 'healthy' || data.status === 'degraded' ? 'connected' : 'error');
+      setBackendStatus((data.status === 'healthy' || data.status === 'degraded') ? 'connected' : 'error');
     } catch (error) {
       console.error('Backend health check failed:', error);
       setBackendStatus('error');
@@ -244,6 +246,9 @@ const PredictionDashboard = () => {
         </div>
       </header>
 
+      {/* Service Status Bar */}
+      <ServiceStatusBar />
+
       {/* Main Content: SidePanel | Chart | Predictions */}
       <div className="main-content three-col">
         {/* Left Panel */}
@@ -286,6 +291,9 @@ const PredictionDashboard = () => {
               </div>
             )}
           </div>
+
+          {/* Accuracy Tracker */}
+          <AccuracyTracker />
 
           {/* Prediction History */}
           <div className="prediction-history">

@@ -16,7 +16,7 @@ from pathlib import Path
 import logging
 
 # ML Libraries
-from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
+from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV, TimeSeriesSplit
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 from sklearn.metrics import classification_report, confusion_matrix
@@ -158,13 +158,13 @@ class ModelTrainer:
         
         logger.info(f"✅ Training data ready: {features_df.shape[0]} samples, {features_df.shape[1]} features")
         
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(
-            features_df, targets_df['target'], 
-            test_size=self.test_size, 
-            random_state=self.random_state,
-            stratify=targets_df['target']
-        )
+        # Chronological walk-forward split (prevents future data leaking into training)
+        split_idx = int(len(features_df) * (1 - self.test_size))
+        purge_gap = 5  # skip 5 candles between train/test to prevent lookback leakage
+        X_train = features_df.iloc[:split_idx - purge_gap]
+        X_test = features_df.iloc[split_idx:]
+        y_train = targets_df['target'].iloc[:split_idx - purge_gap]
+        y_test = targets_df['target'].iloc[split_idx:]
         
         # Scale features
         scaler = StandardScaler()
@@ -253,10 +253,15 @@ class ModelTrainer:
         # Calculate metrics
         metrics = self._calculate_metrics(y_test, y_pred, y_pred_proba)
         
-        # Cross-validation
-        cv_scores = cross_val_score(model, X_train, y_train, cv=self.cv_folds, scoring='accuracy')
+        # Time-series cross-validation (respects temporal ordering)
+        tscv = TimeSeriesSplit(n_splits=self.cv_folds)
+        cv_scores = cross_val_score(model, X_train, y_train, cv=tscv, scoring='accuracy')
         metrics['cv_mean'] = cv_scores.mean()
         metrics['cv_std'] = cv_scores.std()
+
+        # Sanity check: warn if test accuracy suspiciously high (potential overfitting)
+        if metrics['accuracy'] > 0.85:
+            logger.warning(f"⚠️ Suspiciously high test accuracy ({metrics['accuracy']:.4f}) for {algorithm} — possible overfitting or data leakage")
         
         # Feature importance
         importance = self._get_feature_importance(model, feature_names)
@@ -274,32 +279,32 @@ class ModelTrainer:
     def _create_random_forest(self) -> RandomForestClassifier:
         """Create Random Forest model with optimized parameters"""
         return RandomForestClassifier(
-            n_estimators=100,
+            n_estimators=200,
             max_depth=10,
             min_samples_split=5,
             min_samples_leaf=2,
             random_state=self.random_state,
             n_jobs=-1
         )
-    
+
     def _create_xgboost(self) -> xgb.XGBClassifier:
         """Create XGBoost model with optimized parameters"""
         return xgb.XGBClassifier(
-            n_estimators=100,
+            n_estimators=200,
             max_depth=6,
-            learning_rate=0.1,
+            learning_rate=0.05,
             subsample=0.8,
             colsample_bytree=0.8,
             random_state=self.random_state,
             eval_metric='logloss'
         )
-    
+
     def _create_lightgbm(self) -> lgb.LGBMClassifier:
         """Create LightGBM model with optimized parameters"""
         return lgb.LGBMClassifier(
-            n_estimators=100,
+            n_estimators=200,
             max_depth=6,
-            learning_rate=0.1,
+            learning_rate=0.05,
             subsample=0.8,
             colsample_bytree=0.8,
             random_state=self.random_state,

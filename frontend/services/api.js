@@ -2,17 +2,22 @@
  * API Service
  * Provides functions to communicate with the OTC Predictor API Gateway
  * Updated for microservices architecture
+ *
+ * All HTTP requests go through Next.js rewrites (server-side proxy) to
+ * avoid CORS issues.  The browser only hits /api/*, /ml-api/*, /data-api/*
+ * which Next.js forwards to the actual Railway URLs configured in .env.
+ *
+ * WebSocket URLs still connect directly (WSS doesn't go through rewrites).
  */
 
-// Dynamic base URLs with runtime override via localStorage
-const getApiBase = () => {
-  if (typeof window !== 'undefined') {
-    const stored = localStorage.getItem('api_base_url');
-    if (stored) return stored;
-  }
-  return process.env.NEXT_PUBLIC_API_URL || '';
-};
+// HTTP proxy paths (matched by next.config.js rewrites)
+const API_BASE = '/api';           // → NEXT_PUBLIC_API_URL
+const ML_TRAINING_BASE = '/ml-api'; // → NEXT_PUBLIC_ML_TRAINING_URL
+const DATA_COLLECTION_BASE = '/data-api'; // → NEXT_PUBLIC_DATA_COLLECTION_URL
 
+const getApiBase = () => API_BASE;
+
+// WebSocket still needs the direct URL (can't proxy through Next.js rewrites)
 const getWsBase = () => {
   if (typeof window !== 'undefined') {
     const stored = localStorage.getItem('ws_base_url');
@@ -21,23 +26,16 @@ const getWsBase = () => {
   return process.env.NEXT_PUBLIC_WS_URL || '';
 };
 
-export const setApiBaseUrl = (url) => {
-  if (typeof window !== 'undefined') {
-    if (url) localStorage.setItem('api_base_url', url); else localStorage.removeItem('api_base_url');
-  }
-};
-
+// Kept for backward compat but no longer used by index.jsx
+export const setApiBaseUrl = () => {};
 export const setWsBaseUrl = (url) => {
   if (typeof window !== 'undefined') {
     if (url) localStorage.setItem('ws_base_url', url); else localStorage.removeItem('ws_base_url');
   }
 };
 
-console.log('🔌 API Service base:', getApiBase() || '(unset)');
+console.log('🔌 API proxy path:', API_BASE);
 console.log('📡 WebSocket base:', getWsBase() || '(unset)');
-
-// ML Training Service URL (direct access)
-const ML_TRAINING_URL = process.env.NEXT_PUBLIC_ML_TRAINING_URL || '';
 
 /**
  * Generic API request handler with error handling
@@ -92,7 +90,7 @@ const directMLTrainingRequest = async (endpoint, options = {}) => {
   try {
     // Add cache-busting parameter for GET requests
     const cacheBuster = options.method === 'GET' ? `${endpoint.includes('?') ? '&' : '?'}_t=${Date.now()}` : '';
-    const url = `${ML_TRAINING_URL}${endpoint}${cacheBuster}`;
+    const url = `${ML_TRAINING_BASE}${endpoint}${cacheBuster}`;
     console.log(`🔄 Direct ML Training Request: ${options.method || 'GET'} ${url}`);
     
     const response = await fetch(url, {
@@ -238,21 +236,8 @@ export const getModelsInfo = async () => {
 export const getModelsForPair = async (tradingPair) => {
   try {
     console.log(`🔍 Fetching models for pair: ${tradingPair}`);
-    const base = getApiBase();
-    console.log(`🔗 API URL: ${base}/ml/models/${encodeURIComponent(tradingPair)}`);
-    
-    const response = await fetch(`${base}/ml/models/${encodeURIComponent(tradingPair)}`);
-    console.log(`📊 Response status: ${response.status}`);
-    
-    if (!response.ok) {
-      console.error(`❌ Error response: ${response.status} ${response.statusText}`);
-      throw new Error(`Error fetching models: ${response.status}`);
-    }
-    
-    const data = await response.json();
+    const data = await apiRequest(`/ml/models/${encodeURIComponent(tradingPair)}`);
     console.log('✅ Models fetched successfully:', data);
-    console.log(`📊 Found ${data.local_count} local models and ${data.cloud_count} cloud models`);
-    
     return data;
   } catch (error) {
     console.error('❌ Error fetching models:', error);
@@ -370,6 +355,36 @@ export const selectModel = async (tradingPair, modelName, modelType = null) => {
 };
 
 // =============================================================================
+// SERVICE STATUS & PREDICTION ACCURACY
+// =============================================================================
+
+/**
+ * Get individual service statuses from the health endpoint
+ * @returns {Promise<Object>} Service statuses map
+ */
+export const getServiceStatuses = async () => {
+  const health = await getHealthStatus();
+  return health.services;
+};
+
+/**
+ * Get prediction accuracy statistics
+ * @returns {Promise<Object>} Accuracy data with overall and per-model breakdown
+ */
+export const getPredictionAccuracy = async () => {
+  return await apiRequest('/api/predictions/accuracy');
+};
+
+/**
+ * Get data collection service status
+ * @returns {Promise<Object>} Data collection status
+ */
+export const getDataCollectionStatus = async () => {
+  const response = await fetch(`${DATA_COLLECTION_BASE}/status`);
+  return response.json();
+};
+
+// =============================================================================
 // WEBSOCKET CONNECTIONS
 // =============================================================================
 
@@ -420,6 +435,11 @@ export default {
   startPredictionService,
   stopPredictionService,
   selectModel,
+
+  // Service Status & Accuracy
+  getServiceStatuses,
+  getPredictionAccuracy,
+  getDataCollectionStatus,
 
   // WebSocket Connections
   createPredictionWebSocket,

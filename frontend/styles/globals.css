@@ -394,3 +394,288 @@ select:focus {
 * {
   transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
 }
+
+/* =============================================================================
+   STARTUP / SERVICE CONNECTION PAGE
+   ============================================================================= */
+
+.startup-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+.startup-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 40px 36px 32px;
+  width: 100%;
+  max-width: 420px;
+  text-align: center;
+}
+
+.startup-brand {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.startup-subtitle {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin-bottom: 28px;
+}
+
+/* Service rows */
+.startup-services {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.startup-service-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.startup-service-row:last-child {
+  border-bottom: none;
+}
+
+.startup-service-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* Badge states */
+.startup-service-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 20px;
+}
+
+.startup-service-badge.checking {
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+}
+
+.startup-service-badge.connected {
+  color: var(--accent-green);
+  background: rgba(0, 255, 136, 0.1);
+}
+
+.startup-service-badge.failed {
+  color: var(--accent-red);
+  background: rgba(255, 68, 68, 0.1);
+}
+
+/* Small inline spinner for checking state */
+.startup-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--text-secondary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Footer area */
+.startup-footer {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.startup-footer .sp-button {
+  width: 100%;
+  max-width: 240px;
+}
+
+.startup-retry-info {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* =============================================================================
+   SERVICE STATUS BAR
+   ============================================================================= */
+
+.service-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 8px 20px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  overflow-x: auto;
+}
+
+.service-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.green {
+  background-color: var(--accent-green);
+  box-shadow: 0 0 6px var(--accent-green);
+}
+
+.status-dot.red {
+  background-color: var(--accent-red);
+  box-shadow: 0 0 6px var(--accent-red);
+}
+
+.status-dot.gray {
+  background-color: #666;
+}
+
+.service-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.service-state {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* =============================================================================
+   ACCURACY TRACKER
+   ============================================================================= */
+
+.accuracy-tracker {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.accuracy-tracker h3 {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.accuracy-unavailable {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.accuracy-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.accuracy-big-number {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--accent-green);
+}
+
+.accuracy-big-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.accuracy-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.accuracy-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px;
+  background-color: var(--bg-tertiary);
+  border-radius: 6px;
+}
+
+.accuracy-stat .stat-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.accuracy-stat .stat-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.accuracy-models h4 {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.accuracy-model-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.accuracy-model-row:last-child {
+  border-bottom: none;
+}
+
+.model-name {
+  color: var(--text-secondary);
+  font-weight: 500;
+  flex: 1;
+}
+
+.model-accuracy {
+  color: var(--accent-green);
+  font-weight: 600;
+  margin-right: 12px;
+}
+
+.model-count {
+  color: var(--text-muted);
+  font-size: 12px;
+}

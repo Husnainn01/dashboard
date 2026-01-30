@@ -632,6 +632,15 @@ async def quick_prediction(trading_pair: str, model_type: str = None, model_name
                 detail=f"Failed to get prediction for {trading_pair}. Please try again later."
             )
 
+@app.get("/api/predictions/accuracy")
+async def get_prediction_accuracy():
+    """Proxy route for prediction accuracy stats"""
+    return await forward_request(
+        "prediction",
+        "/predictions/accuracy",
+        method="GET"
+    )
+
 @app.post("/predictions/start")
 async def start_prediction_service():
     """Start continuous prediction service"""

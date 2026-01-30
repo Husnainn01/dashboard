@@ -526,6 +526,116 @@ async def get_status():
             "current_time": datetime.now().isoformat()
         }
 
+@app.get("/predictions/accuracy")
+async def get_prediction_accuracy():
+    """Get prediction accuracy statistics by comparing predicted vs actual directions"""
+    global mongodb_manager
+
+    if not mongodb_manager or not mongodb_manager.is_connected:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    try:
+        now = datetime.now(pytz.UTC)
+        cutoff_7d = now - timedelta(days=7)
+        cutoff_24h = now - timedelta(hours=24)
+
+        # Fetch recent predictions (last 30 days max)
+        cutoff_30d = now - timedelta(days=30)
+        predictions_cursor = mongodb_manager.db.predictions.find(
+            {"timestamp": {"$gte": cutoff_30d}},
+            sort=[("timestamp", -1)]
+        ).limit(1000)
+        predictions = await predictions_cursor.to_list(length=1000)
+
+        if not predictions:
+            return {
+                "total_predictions": 0,
+                "correct_predictions": 0,
+                "accuracy": 0.0,
+                "win_rate": 0.0,
+                "recent_accuracy_7d": 0.0,
+                "recent_accuracy_24h": 0.0,
+                "by_model": {}
+            }
+
+        total = 0
+        correct = 0
+        correct_7d = 0
+        total_7d = 0
+        correct_24h = 0
+        total_24h = 0
+        by_model = {}
+
+        for pred in predictions:
+            pred_ts = pred.get("timestamp")
+            if pred_ts and pred_ts.tzinfo is None:
+                pred_ts = pred_ts.replace(tzinfo=pytz.UTC)
+
+            predicted_direction = pred.get("prediction", "").lower()
+            trading_pair = pred.get("trading_pair", "")
+            model_type = pred.get("model_type", "unknown")
+
+            if not predicted_direction or not trading_pair:
+                continue
+
+            # Find the candle that closed after this prediction to determine actual direction
+            candle = await mongodb_manager.db.candles.find_one(
+                {"trading_pair": trading_pair, "timestamp": {"$gt": pred_ts}},
+                sort=[("timestamp", 1)]
+            )
+
+            if not candle:
+                continue
+
+            actual_direction = "up" if candle.get("close", 0) > candle.get("open", 0) else "down"
+            is_correct = predicted_direction == actual_direction
+
+            total += 1
+            if is_correct:
+                correct += 1
+
+            # 7d window
+            if pred_ts and pred_ts >= cutoff_7d:
+                total_7d += 1
+                if is_correct:
+                    correct_7d += 1
+
+            # 24h window
+            if pred_ts and pred_ts >= cutoff_24h:
+                total_24h += 1
+                if is_correct:
+                    correct_24h += 1
+
+            # Per-model breakdown
+            if model_type not in by_model:
+                by_model[model_type] = {"total": 0, "correct": 0, "accuracy": 0.0}
+            by_model[model_type]["total"] += 1
+            if is_correct:
+                by_model[model_type]["correct"] += 1
+
+        # Compute accuracies
+        accuracy = correct / total if total > 0 else 0.0
+        accuracy_7d = correct_7d / total_7d if total_7d > 0 else 0.0
+        accuracy_24h = correct_24h / total_24h if total_24h > 0 else 0.0
+
+        for model_key in by_model:
+            m = by_model[model_key]
+            m["accuracy"] = round(m["correct"] / m["total"], 4) if m["total"] > 0 else 0.0
+
+        return {
+            "total_predictions": total,
+            "correct_predictions": correct,
+            "accuracy": round(accuracy, 4),
+            "win_rate": round(accuracy, 4),
+            "recent_accuracy_7d": round(accuracy_7d, 4),
+            "recent_accuracy_24h": round(accuracy_24h, 4),
+            "by_model": by_model
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error computing prediction accuracy: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error computing accuracy: {str(e)}")
+
 @app.post("/predict", response_model=PredictionResponse)
 async def make_prediction(request: PredictionRequest):
     """Generate a prediction for a trading pair"""

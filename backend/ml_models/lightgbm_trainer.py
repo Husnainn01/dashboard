@@ -12,7 +12,7 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional
 from pathlib import Path
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score, TimeSeriesSplit
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.preprocessing import StandardScaler
@@ -103,13 +103,13 @@ class LightGBMTrainer:
             return {'error': f'Insufficient data: {len(features_df)} samples'}
 
         try:
-            # Split
-            X_train, X_test, y_train, y_test = train_test_split(
-                features_df, targets_df['target'],
-                test_size=self.test_size,
-                random_state=self.random_state,
-                stratify=targets_df['target']
-            )
+            # Chronological walk-forward split (prevents future data leaking into training)
+            split_idx = int(len(features_df) * (1 - self.test_size))
+            purge_gap = 5  # skip 5 candles between train/test to prevent lookback leakage
+            X_train = features_df.iloc[:split_idx - purge_gap]
+            X_test = features_df.iloc[split_idx:]
+            y_train = targets_df['target'].iloc[:split_idx - purge_gap]
+            y_test = targets_df['target'].iloc[split_idx:]
 
             # Scale
             scaler = StandardScaler()
@@ -132,6 +132,16 @@ class LightGBMTrainer:
 
             # Metrics
             metrics = await self._calculate_metrics(y_test, y_pred, y_pred_proba)
+
+            # Time-series cross-validation
+            tscv = TimeSeriesSplit(n_splits=5)
+            cv_scores = cross_val_score(model, X_train_scaled, y_train, cv=tscv, scoring='accuracy')
+            metrics['cv_mean'] = float(cv_scores.mean())
+            metrics['cv_std'] = float(cv_scores.std())
+
+            # Sanity check: warn if test accuracy suspiciously high
+            if metrics['accuracy'] > 0.85:
+                logger.warning(f"⚠️ Suspiciously high test accuracy ({metrics['accuracy']:.4f}) — possible overfitting or data leakage")
 
             # Feature importance
             feature_importance = await self._get_feature_importance(model, features_df.columns.tolist())

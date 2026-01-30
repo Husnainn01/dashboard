@@ -1,162 +1,157 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Head from 'next/head';
 import PredictionDashboard from '../components/PredictionDashboard';
-import { setApiBaseUrl, setWsBaseUrl, getHealthStatus } from '../services/api';
+import { getHealthStatus } from '../services/api';
+
+const SERVICE_NAMES = {
+  api_gateway: 'API Gateway',
+  data_collection: 'Data Collection',
+  ml_training: 'ML Training',
+  prediction: 'Prediction Service',
+};
+
+// Only the gateway needs to be up to proceed — others are shown for info
+const REQUIRED_SERVICE = 'api_gateway';
 
 export default function Home() {
-  const [backendConnected, setBackendConnected] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [apiUrl, setApiUrl] = useState('');
-  const [wsUrl, setWsUrl] = useState('');
+  const [ready, setReady] = useState(false);
+  const [checking, setChecking] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
-  const [lastError, setLastError] = useState('');
+  const [services, setServices] = useState({
+    api_gateway: 'checking',
+    data_collection: 'checking',
+    ml_training: 'checking',
+    prediction: 'checking',
+  });
 
-  // Check backend connection on mount
-  useEffect(() => {
-    // Initialize from localStorage or env defaults
-    if (typeof window !== 'undefined') {
-      setApiUrl(localStorage.getItem('api_base_url') || process.env.NEXT_PUBLIC_API_URL || '');
-      setWsUrl(localStorage.getItem('ws_base_url') || process.env.NEXT_PUBLIC_WS_URL || '');
-    }
-    checkBackendConnection();
-  }, []);
+  const checkServices = useCallback(async () => {
+    setChecking(true);
 
-  const checkBackendConnection = async () => {
+    // Mark all as checking
+    setServices({
+      api_gateway: 'checking',
+      data_collection: 'checking',
+      ml_training: 'checking',
+      prediction: 'checking',
+    });
+
     try {
       const data = await getHealthStatus();
-      
-      if (data.status === 'healthy') {
-        setBackendConnected(true);
-        setLastError('');
-      } else {
-        setBackendConnected(false);
-        setLastError(data?.status || 'unhealthy');
+
+      // Gateway itself is reachable if we got a response
+      const gatewayUp = data.status === 'healthy' || data.status === 'degraded';
+
+      const next = {
+        api_gateway: gatewayUp ? 'connected' : 'failed',
+        data_collection: data.services?.data_collection === 'healthy' ? 'connected' : 'failed',
+        ml_training: data.services?.ml_training === 'healthy' ? 'connected' : 'failed',
+        prediction: data.services?.prediction === 'healthy' ? 'connected' : 'failed',
+      };
+
+      setServices(next);
+
+      if (gatewayUp) {
+        // Short delay so the user can see the green checks before transitioning
+        setTimeout(() => setReady(true), 600);
       }
-    } catch (error) {
-      console.error('Backend connection failed:', error);
-      setBackendConnected(false);
-      setLastError(error?.message || String(error));
+    } catch {
+      setServices({
+        api_gateway: 'failed',
+        data_collection: 'failed',
+        ml_training: 'failed',
+        prediction: 'failed',
+      });
     } finally {
-      setLoading(false);
+      setChecking(false);
     }
-  };
+  }, []);
 
-  // Auto-retry every 8s when disconnected, up to 8 attempts (reset on success)
+  // Initial check
   useEffect(() => {
-    if (backendConnected) return;
-    if (retryCount >= 8) return;
-    const t = setTimeout(async () => {
-      await checkBackendConnection();
+    checkServices();
+  }, [checkServices]);
+
+  // Auto-retry every 6s while not ready, up to 10 attempts
+  useEffect(() => {
+    if (ready) return;
+    if (retryCount >= 10) return;
+    const t = setTimeout(() => {
       setRetryCount((c) => c + 1);
-    }, 8000);
+      checkServices();
+    }, 6000);
     return () => clearTimeout(t);
-  }, [backendConnected, retryCount]);
+  }, [ready, retryCount, checkServices]);
 
-  const handleSaveAndRetry = async () => {
-    if (apiUrl) setApiBaseUrl(apiUrl);
-    if (wsUrl) setWsBaseUrl(wsUrl);
-    setLoading(true);
+  const handleRetry = () => {
     setRetryCount(0);
-    await checkBackendConnection();
+    checkServices();
   };
 
-  const handleResetDefaults = async () => {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('api_base_url');
-      localStorage.removeItem('ws_base_url');
-    }
-    setApiUrl(process.env.NEXT_PUBLIC_API_URL || '');
-    setWsUrl(process.env.NEXT_PUBLIC_WS_URL || '');
-    setLoading(true);
-    setRetryCount(0);
-    await checkBackendConnection();
-  };
-
-  if (loading) {
+  if (ready) {
     return (
       <>
         <Head>
-          <title>OTC Predictor - Loading</title>
-          <meta name="description" content="Real-time OTC trading dashboard" />
+          <title>OTC Predictor - Live Trading Dashboard</title>
+          <meta name="description" content="Real-time OTC trading dashboard with ML predictions" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <link rel="icon" href="/favicon.ico" />
         </Head>
-        <div className="dashboard-container">
-          <div className="loading">
-            <div className="spinner"></div>
-            <span style={{ marginLeft: '12px' }}>Connecting to backend...</span>
-          </div>
-        </div>
+        <PredictionDashboard />
       </>
     );
   }
 
-  if (!backendConnected) {
-    return (
-      <>
-        <Head>
-          <title>OTC Predictor - Backend Required</title>
-          <meta name="description" content="Real-time OTC trading dashboard" />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-        </Head>
-        <div className="dashboard-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
-          <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 10, padding: 24, width: '100%', maxWidth: 700 }}>
-            <h1 style={{ fontSize: 22, marginBottom: 6 }}>Backend not reachable</h1>
-            <p style={{ color: '#9a9a9a', marginBottom: 16 }}>Update endpoints below or start the backend service. The app will auto-retry.</p>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
-              <div>
-                <label style={{ display: 'block', fontSize: 12, color: '#9a9a9a', marginBottom: 6 }}>API Base URL</label>
-                <input value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} placeholder="https://..."
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #2a2a2a', background: '#181818', color: 'white' }} />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: 12, color: '#9a9a9a', marginBottom: 6 }}>WebSocket Base URL</label>
-                <input value={wsUrl} onChange={(e) => setWsUrl(e.target.value)} placeholder="wss://..."
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #2a2a2a', background: '#181818', color: 'white' }} />
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 12, marginTop: 14 }}>
-              <button className="sp-button primary" onClick={handleSaveAndRetry} disabled={loading}>
-                💾 Save & Retry
-              </button>
-              <button className="sp-button" onClick={checkBackendConnection} disabled={loading}>
-                🔄 Retry Now
-              </button>
-              <button className="sp-button ghost" onClick={handleResetDefaults} disabled={loading}>
-                ♻️ Reset Defaults
-              </button>
-            </div>
-
-            <div style={{ marginTop: 12, fontSize: 12, color: '#9a9a9a' }}>
-              <div>Auto retries: {retryCount} / 8 {loading ? '· checking...' : ''}</div>
-              {lastError && <div style={{ color: '#ff6b6b', marginTop: 4 }}>Last error: {lastError}</div>}
-            </div>
-
-            <div style={{ marginTop: 18, paddingTop: 12, borderTop: '1px solid #2a2a2a' }}>
-              <h3 style={{ marginBottom: 8, color: '#e5e5e5', fontSize: 16 }}>Start the backend locally</h3>
-              <ol style={{ color: '#9a9a9a', lineHeight: 1.7 }}>
-                <li>Open a terminal</li>
-                <li>Navigate to: <code>otc-predictor/backend/</code></li>
-                <li>Run: <code style={{ background: '#0a0a0a', padding: '2px 6px', borderRadius: 4 }}>python main.py</code></li>
-                <li>Watch for: <code>API server started</code></li>
-              </ol>
-            </div>
-          </div>
-        </div>
-      </>
-    );
-  }
-
+  // Loading / connection screen
   return (
     <>
       <Head>
-        <title>OTC Predictor - Live Trading Dashboard</title>
-        <meta name="description" content="Real-time OTC trading dashboard with ML predictions" />
+        <title>OTC Predictor - Connecting</title>
+        <meta name="description" content="Real-time OTC trading dashboard" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/favicon.ico" />
       </Head>
-      <PredictionDashboard />
+      <div className="startup-page">
+        <div className="startup-card">
+          <div className="startup-brand">OTC Predictor</div>
+          <p className="startup-subtitle">Connecting to services...</p>
+
+          <div className="startup-services">
+            {Object.entries(SERVICE_NAMES).map(([key, label]) => {
+              const status = services[key];
+              return (
+                <div key={key} className="startup-service-row">
+                  <span className="startup-service-name">{label}</span>
+                  <span className={`startup-service-badge ${status}`}>
+                    {status === 'checking' && <span className="startup-spinner" />}
+                    {status === 'connected' && 'Connected'}
+                    {status === 'failed' && (key === REQUIRED_SERVICE ? 'Unreachable' : 'Offline')}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Show retry controls when gateway failed */}
+          {services.api_gateway === 'failed' && !checking && (
+            <div className="startup-footer">
+              <button className="sp-button primary" onClick={handleRetry}>
+                Retry Connection
+              </button>
+              <div className="startup-retry-info">
+                {retryCount < 10
+                  ? `Auto-retrying... (${retryCount}/10)`
+                  : 'Auto-retry exhausted'}
+              </div>
+            </div>
+          )}
+
+          {/* Subtle auto-retry indicator while still trying */}
+          {services.api_gateway !== 'failed' && checking && (
+            <div className="startup-footer">
+              <div className="startup-retry-info">Checking services...</div>
+            </div>
+          )}
+        </div>
+      </div>
     </>
   );
 }
