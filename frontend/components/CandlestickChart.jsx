@@ -7,7 +7,6 @@ export default function CandlestickChart({ tradingPair, prediction }) {
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
   const wsRef = useRef(null);
-  const formingBarRef = useRef(null);
   const markersRef = useRef([]);
 
   // Initialize chart
@@ -69,8 +68,7 @@ export default function CandlestickChart({ tradingPair, prediction }) {
   useEffect(() => {
     if (!seriesRef.current || !tradingPair) return;
 
-    // Reset forming bar and markers when pair changes
-    formingBarRef.current = null;
+    // Reset markers when pair changes
     markersRef.current = [];
 
     let cancelled = false;
@@ -104,7 +102,7 @@ export default function CandlestickChart({ tradingPair, prediction }) {
     return () => { cancelled = true; };
   }, [tradingPair]);
 
-  // Subscribe to real-time candle updates and price ticks
+  // Subscribe to real-time candle updates
   useEffect(() => {
     if (!seriesRef.current || !tradingPair) return;
 
@@ -119,9 +117,7 @@ export default function CandlestickChart({ tradingPair, prediction }) {
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
-
           if (msg.type === 'candle_data' && msg.trading_pair === tradingPair) {
-            // Authoritative completed candle from batch pipeline
             const bar = {
               time: toUnixSeconds(msg.timestamp),
               open: msg.open,
@@ -130,37 +126,6 @@ export default function CandlestickChart({ tradingPair, prediction }) {
               close: msg.close,
             };
             seriesRef.current?.update(bar);
-            // Reset forming bar so next tick starts a fresh one
-            formingBarRef.current = null;
-          }
-
-          if (msg.type === 'price_tick' && msg.trading_pair === tradingPair) {
-            const price = msg.price;
-            const tickTime = msg.timestamp;
-            if (!price || price <= 0) return;
-
-            // Bucket to minute boundary
-            const barTime = Math.floor(tickTime) - (Math.floor(tickTime) % 60);
-            const forming = formingBarRef.current;
-
-            if (!forming || forming.time !== barTime) {
-              // New minute or first tick — create forming bar
-              formingBarRef.current = {
-                time: barTime,
-                open: price,
-                high: price,
-                low: price,
-                close: price,
-              };
-            } else {
-              // Same minute — update forming bar
-              forming.close = price;
-              forming.high = Math.max(forming.high, price);
-              forming.low = Math.min(forming.low, price);
-            }
-
-            // Push to chart (lightweight-charts updates last bar in-place)
-            seriesRef.current?.update(formingBarRef.current);
           }
         } catch (e) {
           // ignore parse errors

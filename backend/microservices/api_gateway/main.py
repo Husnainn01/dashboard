@@ -295,7 +295,15 @@ async def forward_request(request_or_service: Union[Request, str], service_name_
         request = request_or_service
         service_name = service_name_or_path
         request_method = request.method
-        request_headers = request.headers
+        # Strip hop-by-hop headers (especially host) so httpx sets the correct
+        # Host header from the target URL. Without this, Railway/Vercel routing
+        # receives the wrong Host and returns 404.
+        _hop_by_hop = {"host", "connection", "keep-alive", "transfer-encoding",
+                       "te", "trailer", "upgrade"}
+        request_headers = {
+            k: v for k, v in request.headers.items()
+            if k.lower() not in _hop_by_hop
+        }
         request_body = await request.body()
     else:
         # Called with (service_name, path, method)
