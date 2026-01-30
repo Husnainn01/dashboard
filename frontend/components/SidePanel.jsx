@@ -9,7 +9,7 @@ import {
 } from '../services/api';
 
 const DEFAULT_PAIRS = [
-  { value: 'USD/BRL(OTC)', label: 'USD/BRL OTC', flag: '🇺🇸🇧🇷' },
+  { value: 'USD/BRL(OTC)', label: 'USD/BRL OTC', flag: '' },
 ];
 
 export default function SidePanel({
@@ -104,7 +104,6 @@ export default function SidePanel({
       setTrainMsg(`Submitting ${modelType} training job...`);
       const res = await retrainModel(selectedPair, modelType);
       setTrainMsg(`Training started (${modelType})${res?.job_id ? ' · Job: ' + res.job_id : ''}`);
-      // Poll models after a short delay
       setTimeout(refreshModels, 8000);
     } catch (e) {
       setTrainMsg(`Training failed (${modelType}): ${e.message}`);
@@ -134,7 +133,6 @@ export default function SidePanel({
         await stopPredictionService();
         setPredictionActive(false);
       } else {
-        // Ensure selection persisted server-side before start
         try {
           await selectModel(selectedPair, selectedModel.name, selectedModel.algorithm);
         } catch (_) {}
@@ -151,13 +149,8 @@ export default function SidePanel({
 
   return (
     <aside className="side-panel">
-      <div className="sp-header">
-        <div className="brand">OTC Predictor</div>
-        <div className="subtitle">Netflix style</div>
-      </div>
-
       {/* Step 1: Select Pair */}
-      <div className="sp-section">
+      <div className="sp-section sp-section-first">
         <div className="sp-title">1. Select Pair</div>
         <select
           className="sp-select"
@@ -181,21 +174,21 @@ export default function SidePanel({
             onClick={() => handleTrain('xgboost')}
             disabled={isTraining || serviceBusy}
           >
-            {isTraining && trainingAlgo === 'xgboost' ? 'Training…' : 'Train XGBoost'}
+            {isTraining && trainingAlgo === 'xgboost' ? 'Training...' : 'Train XGBoost'}
           </button>
           <button
             className="sp-button"
             onClick={() => handleTrain('lightgbm')}
             disabled={isTraining || serviceBusy}
           >
-            {isTraining && trainingAlgo === 'lightgbm' ? 'Training…' : 'Train LightGBM'}
+            {isTraining && trainingAlgo === 'lightgbm' ? 'Training...' : 'Train LightGBM'}
           </button>
           <button
             className="sp-button"
             onClick={() => handleTrain('random_forest')}
             disabled={isTraining || serviceBusy}
           >
-            {isTraining && trainingAlgo === 'random_forest' ? 'Training…' : 'Train Random Forest'}
+            {isTraining && trainingAlgo === 'random_forest' ? 'Training...' : 'Train Random Forest'}
           </button>
         </div>
         {trainMsg && <div className="sp-hint">{trainMsg}</div>}
@@ -218,7 +211,7 @@ export default function SidePanel({
           ))}
         </select>
         <button className="sp-button ghost" onClick={refreshModels} disabled={loadingModels}>
-          {loadingModels ? 'Loading…' : 'Refresh models'}
+          {loadingModels ? 'Loading...' : 'Refresh models'}
         </button>
       </div>
 
@@ -237,7 +230,7 @@ export default function SidePanel({
         )}
       </div>
 
-      <div className="sp-footer">v1 • {new Date().getFullYear()}</div>
+      <div className="sp-footer">v1 · {new Date().getFullYear()}</div>
     </aside>
   );
 }

@@ -7,6 +7,8 @@ export default function CandlestickChart({ tradingPair, prediction }) {
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
   const wsRef = useRef(null);
+  const formingBarRef = useRef(null);
+  const markersRef = useRef([]);
 
   // Initialize chart
   useEffect(() => {
@@ -67,6 +69,10 @@ export default function CandlestickChart({ tradingPair, prediction }) {
   useEffect(() => {
     if (!seriesRef.current || !tradingPair) return;
 
+    // Reset forming bar and markers when pair changes
+    formingBarRef.current = null;
+    markersRef.current = [];
+
     let cancelled = false;
 
     const load = async () => {
@@ -98,7 +104,7 @@ export default function CandlestickChart({ tradingPair, prediction }) {
     return () => { cancelled = true; };
   }, [tradingPair]);
 
-  // Subscribe to real-time candle updates
+  // Subscribe to real-time candle updates and price ticks
   useEffect(() => {
     if (!seriesRef.current || !tradingPair) return;
 
@@ -113,7 +119,9 @@ export default function CandlestickChart({ tradingPair, prediction }) {
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
+
           if (msg.type === 'candle_data' && msg.trading_pair === tradingPair) {
+            // Authoritative completed candle from batch pipeline
             const bar = {
               time: toUnixSeconds(msg.timestamp),
               open: msg.open,
@@ -122,6 +130,37 @@ export default function CandlestickChart({ tradingPair, prediction }) {
               close: msg.close,
             };
             seriesRef.current?.update(bar);
+            // Reset forming bar so next tick starts a fresh one
+            formingBarRef.current = null;
+          }
+
+          if (msg.type === 'price_tick' && msg.trading_pair === tradingPair) {
+            const price = msg.price;
+            const tickTime = msg.timestamp;
+            if (!price || price <= 0) return;
+
+            // Bucket to minute boundary
+            const barTime = Math.floor(tickTime) - (Math.floor(tickTime) % 60);
+            const forming = formingBarRef.current;
+
+            if (!forming || forming.time !== barTime) {
+              // New minute or first tick — create forming bar
+              formingBarRef.current = {
+                time: barTime,
+                open: price,
+                high: price,
+                low: price,
+                close: price,
+              };
+            } else {
+              // Same minute — update forming bar
+              forming.close = price;
+              forming.high = Math.max(forming.high, price);
+              forming.low = Math.min(forming.low, price);
+            }
+
+            // Push to chart (lightweight-charts updates last bar in-place)
+            seriesRef.current?.update(formingBarRef.current);
           }
         } catch (e) {
           // ignore parse errors
@@ -144,7 +183,7 @@ export default function CandlestickChart({ tradingPair, prediction }) {
     };
   }, [tradingPair]);
 
-  // Add prediction marker when a new prediction arrives
+  // Accumulate prediction markers when a new prediction arrives
   useEffect(() => {
     if (!seriesRef.current || !prediction) return;
 
@@ -155,15 +194,27 @@ export default function CandlestickChart({ tradingPair, prediction }) {
 
       const isUp = (prediction.direction || '').toLowerCase() === 'up';
 
-      seriesRef.current.setMarkers([
-        {
-          time: ts,
-          position: isUp ? 'belowBar' : 'aboveBar',
-          color: isUp ? '#00ff88' : '#ff4444',
-          shape: isUp ? 'arrowUp' : 'arrowDown',
-          text: isUp ? 'UP' : 'DOWN',
-        },
-      ]);
+      const newMarker = {
+        time: ts,
+        position: isUp ? 'belowBar' : 'aboveBar',
+        color: isUp ? '#00ff88' : '#ff4444',
+        shape: isUp ? 'arrowUp' : 'arrowDown',
+        text: isUp ? 'UP' : 'DOWN',
+      };
+
+      // Add to accumulated markers, deduplicate by time, keep last 50
+      const existing = markersRef.current;
+      const deduped = existing.filter((m) => m.time !== newMarker.time);
+      deduped.push(newMarker);
+      // Sort ascending by time (required by lightweight-charts)
+      deduped.sort((a, b) => a.time - b.time);
+      // Keep only last 50 markers
+      if (deduped.length > 50) {
+        deduped.splice(0, deduped.length - 50);
+      }
+      markersRef.current = deduped;
+
+      seriesRef.current.setMarkers(markersRef.current);
     } catch (e) {
       // Marker placement is optional; don't crash
     }

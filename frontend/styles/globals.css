@@ -1,5 +1,5 @@
 /* OTC Predictor - Dark Theme Globals */
-/* Optimized for 16-inch MacBook Pro (3456 × 2234) */
+/* Optimized for 16-inch MacBook Pro (3456 x 2234) */
 
 * {
   margin: 0;
@@ -31,10 +31,11 @@ body {
   --text-muted: #666666;
   --accent-green: #00ff88;
   --accent-red: #ff4444;
+  --accent-yellow: #ffc107;
   --border-color: #333333;
   --shadow-light: rgba(255, 255, 255, 0.1);
   --shadow-dark: rgba(0, 0, 0, 0.5);
-  
+
   /* Prediction card colors */
   --prediction-up-bg: rgba(0, 255, 136, 0.1);
   --prediction-down-bg: rgba(255, 68, 68, 0.1);
@@ -80,28 +81,160 @@ body {
   border-left: 1px solid var(--border-color);
 }
 
-/* Header */
+/* =========================================================================
+   HEADER — integrated brand + service dots + connection pill
+   ========================================================================= */
 .header {
-  height: 60px;
+  height: 52px;
   background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 20px;
+  flex-shrink: 0;
+  gap: 16px;
+}
+
+.header-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   flex-shrink: 0;
 }
 
-.header-title {
-  font-size: 20px;
-  font-weight: 600;
+.brand-bold {
+  font-size: 18px;
+  font-weight: 800;
   color: var(--text-primary);
+  letter-spacing: 0.5px;
+}
+
+.brand-light {
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+/* Inline service dots in header */
+.header-services {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  justify-content: center;
+}
+
+.svc-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.svc-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.svc-dot.green {
+  background-color: var(--accent-green);
+  box-shadow: 0 0 6px var(--accent-green);
+}
+
+.svc-dot.red {
+  background-color: var(--accent-red);
+  box-shadow: 0 0 6px var(--accent-red);
+}
+
+.svc-dot.gray {
+  background-color: #666;
+}
+
+.svc-name {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
 }
 
 .header-controls {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* =========================================================================
+   CONNECTION STATUS PILL
+   ========================================================================= */
+.conn-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.conn-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.conn-label {
+  line-height: 1;
+}
+
+/* Live — green */
+.conn-pill.live {
+  background: rgba(0, 255, 136, 0.12);
+  color: var(--accent-green);
+}
+.conn-pill.live .conn-dot {
+  background-color: var(--accent-green);
+  box-shadow: 0 0 6px var(--accent-green);
+}
+
+/* Connecting — yellow */
+.conn-pill.connecting {
+  background: rgba(255, 193, 7, 0.12);
+  color: var(--accent-yellow);
+}
+.conn-pill.connecting .conn-dot {
+  background-color: var(--accent-yellow);
+  box-shadow: 0 0 6px var(--accent-yellow);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+/* Offline — red */
+.conn-pill.offline {
+  background: rgba(255, 68, 68, 0.12);
+  color: var(--accent-red);
+}
+.conn-pill.offline .conn-dot {
+  background-color: var(--accent-red);
+  box-shadow: 0 0 6px var(--accent-red);
+}
+
+/* Ready — neutral gray/blue */
+.conn-pill.ready {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+}
+.conn-pill.ready .conn-dot {
+  background-color: #5a9cf5;
+  box-shadow: 0 0 4px rgba(90, 156, 245, 0.4);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 /* Chart Container */
@@ -125,7 +258,7 @@ body {
   border-radius: 8px;
   border: 1px solid var(--border-color);
   position: relative;
-  overflow: hidden; /* Prevent content overflow */
+  overflow: hidden;
 }
 
 /* Controls */
@@ -219,7 +352,7 @@ body {
   color: var(--text-primary);
 }
 
-/* Status Indicators */
+/* Status Indicators (legacy — kept for non-header uses) */
 .status-indicator {
   display: inline-flex;
   align-items: center;
@@ -324,42 +457,47 @@ body {
   .main-content {
     flex-direction: column;
   }
-  
+
   .sidebar {
     width: 100%;
     height: auto;
     max-height: 300px;
     overflow-y: auto;
   }
-  
+
   .chart-section {
     border-right: none;
     border-bottom: 1px solid var(--border-color);
   }
-  
+
   .header {
-    padding: 0 16px;
+    padding: 0 12px;
   }
-  
+
   .chart-container {
     padding: 12px;
+  }
+
+  .header-services {
+    display: none;
   }
 }
 
 @media (max-width: 480px) {
   .header {
-    height: 50px;
-    padding: 0 12px;
+    height: 46px;
+    padding: 0 10px;
   }
-  
-  .header-title {
-    font-size: 16px;
+
+  .brand-bold,
+  .brand-light {
+    font-size: 15px;
   }
-  
+
   .chart-container {
     padding: 8px;
   }
-  
+
   .price-display {
     font-size: 20px;
   }
@@ -526,60 +664,6 @@ select:focus {
   font-size: 12px;
   text-align: center;
   word-break: break-word;
-}
-
-/* =============================================================================
-   SERVICE STATUS BAR
-   ============================================================================= */
-
-.service-status-bar {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 8px 20px;
-  background-color: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
-  overflow-x: auto;
-}
-
-.service-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-
-.status-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.status-dot.green {
-  background-color: var(--accent-green);
-  box-shadow: 0 0 6px var(--accent-green);
-}
-
-.status-dot.red {
-  background-color: var(--accent-red);
-  box-shadow: 0 0 6px var(--accent-red);
-}
-
-.status-dot.gray {
-  background-color: #666;
-}
-
-.service-label {
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.service-state {
-  font-size: 11px;
-  color: var(--text-muted);
 }
 
 /* =============================================================================

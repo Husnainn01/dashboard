@@ -49,16 +49,21 @@ service_ready = False
 async def lifespan(app: FastAPI):
     # Startup: Initialize service and start data collection
     global mongodb_manager, data_service_running
-    
+
     logger.info("🚀 Starting Data Collection Service...")
     asyncio.create_task(initialize_service())
-    
+
+    # Stop event for tick streaming graceful shutdown
+    tick_stop_event = asyncio.Event()
+
     # Auto-start data collection if configured
     if os.environ.get("AUTO_START_DATA_COLLECTION", "true").lower() == "true":
         logger.info("🔄 Auto-starting data collection...")
         # Ensure the run loop actually starts
         data_service_running = True
         asyncio.create_task(run_data_service())
+        # Start tick streaming in parallel
+        asyncio.create_task(run_tick_streaming(tick_stop_event))
 
     # Start periodic WebSocket cleanup task
     async def ws_cleanup_loop():
@@ -69,11 +74,14 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(ws_cleanup_loop())
 
     yield
-    
+
+    # Shutdown: signal tick streaming to stop
+    tick_stop_event.set()
+
     # Shutdown: Stop data collection and disconnect from MongoDB
     logger.info("🛑 Shutting down Data Collection Service...")
     await stop_service()
-    
+
     # Disconnect from MongoDB
     if mongodb_manager and mongodb_manager.is_connected:
         logger.info("🔌 Disconnecting from MongoDB...")
@@ -1130,6 +1138,64 @@ async def run_data_service():
 
     data_service_running = False
     logger.info("🛑 Data service stopped")
+
+async def run_tick_streaming(stop_event: asyncio.Event):
+    """Stream real-time price ticks and broadcast via WebSocket.
+    Purely additive — if this fails, batch pipeline is unaffected."""
+    global data_service
+
+    logger.info("📡 Tick streaming task started — waiting for collector to be connected...")
+
+    # Wait until data_service and its collector are connected
+    while not stop_event.is_set():
+        if data_service and data_service.collector and data_service.collector.is_connected:
+            break
+        await asyncio.sleep(2)
+
+    if stop_event.is_set():
+        return
+
+    priority_pair = data_service.priority_pair
+    collector = data_service.collector
+    logger.info(f"📡 Starting tick stream for {priority_pair}")
+
+    while not stop_event.is_set():
+        try:
+            # Resolve asset for subscription (same logic as collect_candle_data)
+            asset_to_use = priority_pair
+            try:
+                from shared.pairs import to_api_asset
+                asset_to_use = to_api_asset(priority_pair) or priority_pair
+            except Exception:
+                pass
+
+            try:
+                asset_name, _ = await collector.client.get_available_asset(asset_to_use, force_open=True)
+                if asset_name:
+                    asset_to_use = asset_name
+            except Exception:
+                pass
+
+            async for tick in collector.stream_realtime_ticks(asset_to_use, stop_event):
+                if stop_event.is_set():
+                    break
+                tick_message = {
+                    "type": "price_tick",
+                    "trading_pair": priority_pair,
+                    "price": tick["price"],
+                    "timestamp": tick["timestamp"],
+                }
+                await manager.broadcast(tick_message, priority_pair)
+
+        except Exception as e:
+            logger.error(f"❌ Tick streaming error: {e}")
+
+        if not stop_event.is_set():
+            logger.info("📡 Tick stream ended — retrying in 5s...")
+            await asyncio.sleep(5)
+
+    logger.info("📡 Tick streaming task stopped")
+
 
 async def initialize_service():
     """Initialize the service"""
