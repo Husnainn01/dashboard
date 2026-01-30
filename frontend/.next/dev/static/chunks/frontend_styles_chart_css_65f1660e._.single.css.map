@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 1, "column": 0}, "map": {"version":3,"sources":["turbopack:///[project]/frontend/styles/chart.css"],"sourcesContent":["/* Candlestick Chart Panel */\n.chart-panel {\n  display: flex;\n  flex-direction: column;\n  background-color: var(--bg-secondary);\n  border-radius: 12px;\n  overflow: hidden;\n  height: 100%;\n  box-shadow: 0 4px 12px var(--shadow-dark);\n}\n\n.chart-panel-header {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  padding: 12px 16px;\n  border-bottom: 1px solid var(--border-color);\n  flex-shrink: 0;\n}\n\n.chart-pair-label {\n  font-size: 16px;\n  font-weight: 600;\n  color: var(--text-primary);\n}\n\n.chart-timeframe {\n  font-size: 12px;\n  font-weight: 500;\n  color: var(--text-secondary);\n  background-color: var(--bg-tertiary);\n  padding: 4px 10px;\n  border-radius: 4px;\n}\n\n.chart-wrapper {\n  flex: 1;\n  min-height: 0;\n}\n"],"names":[],"mappings":"AACA;;;;;;;;;;AAUA;;;;;;;;;AASA;;;;;;AAMA;;;;;;;;;AASA"}}]
-}

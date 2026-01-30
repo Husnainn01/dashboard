@@ -1,6 +1,27 @@
+# Dependencies
 node_modules
+
+# Environment files
 .env
 .env.local
+.env*.local
+
+# Next.js build/cache
+.next
+out
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+
+# IDE
 .cursorrules
+.idea
+
+# Project specific
 memory-bank
 pyquotex
+trained_models
+*.log
