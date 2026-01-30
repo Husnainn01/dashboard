@@ -64,7 +64,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(","),
+    allow_origins=os.getenv("CORS_ALLOWED_ORIGINS", "*").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -256,7 +256,7 @@ async def check_service_health(service_name: str):
     try:
         url = get_service_url(service_name, "/health")
         logger.info(f"🔎 Health check -> {service_name}: {url}")
-        response = await http_client.get(url, timeout=5.0)
+        response = await http_client.get(url, timeout=3.0)
         
         if response.status_code == 200:
             data = response.json()
@@ -382,22 +382,30 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    
-    # Check all services
-    data_service_healthy = await check_service_health("data_collection")
-    ml_service_healthy = await check_service_health("ml_training")
-    prediction_service_healthy = await check_service_health("prediction")
-    
-    # Gateway is healthy if at least one service is healthy
-    gateway_healthy = data_service_healthy or ml_service_healthy or prediction_service_healthy
-    
+
+    # Run all health checks concurrently instead of sequentially
+    results = await asyncio.gather(
+        check_service_health("data_collection"),
+        check_service_health("ml_training"),
+        check_service_health("prediction"),
+        return_exceptions=True
+    )
+
+    data_ok = results[0] is True
+    ml_ok = results[1] is True
+    pred_ok = results[2] is True
+
+    # Gateway is healthy if it responds (regardless of downstream)
+    # "degraded" if downstream services are down
+    any_downstream_up = data_ok or ml_ok or pred_ok
+
     return {
-        "status": "healthy" if gateway_healthy else "degraded",
+        "status": "healthy" if any_downstream_up else "degraded",
         "timestamp": datetime.now().isoformat(),
         "services": {
-            "data_collection": "healthy" if data_service_healthy else "unhealthy",
-            "ml_training": "healthy" if ml_service_healthy else "unhealthy",
-            "prediction": "healthy" if prediction_service_healthy else "unhealthy"
+            "data_collection": "healthy" if data_ok else "unhealthy",
+            "ml_training": "healthy" if ml_ok else "unhealthy",
+            "prediction": "healthy" if pred_ok else "unhealthy"
         }
     }
 

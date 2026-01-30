@@ -17,6 +17,7 @@ export default function Home() {
   const [ready, setReady] = useState(false);
   const [checking, setChecking] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
+  const [errorInfo, setErrorInfo] = useState(null);
   const [services, setServices] = useState({
     api_gateway: 'checking',
     data_collection: 'checking',
@@ -37,6 +38,7 @@ export default function Home() {
 
     try {
       const data = await getHealthStatus();
+      setErrorInfo(null);
 
       // Gateway itself is reachable if we got a response
       const gatewayUp = data.status === 'healthy' || data.status === 'degraded';
@@ -54,7 +56,9 @@ export default function Home() {
         // Short delay so the user can see the green checks before transitioning
         setTimeout(() => setReady(true), 600);
       }
-    } catch {
+    } catch (err) {
+      const msg = err?.message || 'Network error';
+      setErrorInfo(msg);
       setServices({
         api_gateway: 'failed',
         data_collection: 'failed',
@@ -130,10 +134,16 @@ export default function Home() {
             })}
           </div>
 
+          {errorInfo && (
+            <div className="startup-error-detail">
+              {errorInfo}
+            </div>
+          )}
+
           {/* Show retry controls when gateway failed */}
           {services.api_gateway === 'failed' && !checking && (
             <div className="startup-footer">
-              <button className="sp-button primary" onClick={handleRetry}>
+              <button className="btn btn-primary" onClick={handleRetry}>
                 Retry Connection
               </button>
               <div className="startup-retry-info">

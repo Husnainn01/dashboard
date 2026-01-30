@@ -516,6 +516,18 @@ select:focus {
   color: var(--text-muted);
 }
 
+.startup-error-detail {
+  margin-top: 16px;
+  padding: 10px 14px;
+  background: rgba(255, 68, 68, 0.08);
+  border: 1px solid rgba(255, 68, 68, 0.2);
+  border-radius: 8px;
+  color: var(--accent-red);
+  font-size: 12px;
+  text-align: center;
+  word-break: break-word;
+}
+
 /* =============================================================================
    SERVICE STATUS BAR
    ============================================================================= */

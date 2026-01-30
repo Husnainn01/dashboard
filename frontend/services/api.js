@@ -67,8 +67,10 @@ const apiRequest = async (endpoint, options = {}) => {
     // Handle non-200 responses
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`❌ API Error (${response.status}): ${errorText}`);
-      throw new Error(`API Error: ${response.status} ${errorText}`);
+      let detail = '';
+      try { detail = JSON.parse(errorText)?.message || errorText; } catch { detail = errorText; }
+      console.error(`❌ API Error (${response.status}): ${detail}`);
+      throw new Error(`${response.status}: ${detail || response.statusText}`);
     }
     
     // Parse JSON response
