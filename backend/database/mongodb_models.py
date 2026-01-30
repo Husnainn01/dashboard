@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 dotenv.load_dotenv()
 
 # MongoDB connection string from environment or default to Atlas
-MONGODB_URI = os.environ.get("MONGODB_URI", "mongodb+srv://dash:JBuim9uQ8CbXPd1K@dashbaord.zsslbre.mongodb.net/otc-predictor")
+MONGODB_URI = os.environ.get("MONGODB_URI", "")
 MONGODB_DB = os.environ.get("MONGODB_DB", "otc_predictor")
 
 class CandleData:

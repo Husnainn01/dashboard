@@ -45,7 +45,7 @@ app = FastAPI(title="OTC Predictor Optimized ML Training Service")
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -90,8 +90,11 @@ async def initialize_service():
     
     # Initialize MongoDB connection
     logger.info("🔌 Connecting to MongoDB...")
-    mongodb_uri = os.environ.get("MONGODB_URI", "mongodb+srv://dash:JBuim9uQ8CbXPd1K@dashbaord.zsslbre.mongodb.net/otc-predictor")
-    logger.info(f"Using MongoDB URI: {mongodb_uri}")
+    mongodb_uri = os.environ.get("MONGODB_URI", "")
+    if not mongodb_uri:
+        logger.warning("⚠️ MONGODB_URI not set. Database features will be unavailable.")
+    else:
+        logger.info(f"Using MongoDB URI: {mongodb_uri[:30]}...")
     mongodb_manager = MongoDBManager(uri=mongodb_uri)
     
     # Try to connect to MongoDB with retries

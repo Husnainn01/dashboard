@@ -9,6 +9,16 @@
   padding: 20px;
 }
 
+.main-content.three-col {
+  grid-template-columns: 260px 1fr 340px;
+}
+
+/* Center chart panel */
+.chart-center-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* Configuration Panel */
 .config-panel {
   background-color: var(--bg-secondary);
@@ -377,12 +387,22 @@
 }
 
 /* Responsive Adjustments */
+@media (max-width: 1200px) {
+  .main-content.three-col {
+    grid-template-columns: 240px 1fr;
+  }
+  .main-content.three-col .prediction-panel {
+    display: none;
+  }
+}
+
 @media (max-width: 1024px) {
-  .main-content {
+  .main-content,
+  .main-content.three-col {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
   }
-  
+
   .config-panel {
     height: auto;
   }

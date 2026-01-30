@@ -31,7 +31,7 @@ app.use(express.json({ limit: '10mb' })); // Increase limit for screenshot data
 app.use(express.urlencoded({ extended: true }));
 
 // MongoDB Connection
-const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI || 'mongodb+srv://dash:JBuim9uQ8CbXPd1K@dashbaord.zsslbre.mongodb.net/otc-predictor';
+const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI || '';
 console.log(`Attempting to connect to MongoDB...`);
 console.log(`MongoDB URI: ${MONGO_URI.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@')}`); // Hide credentials in logs
 

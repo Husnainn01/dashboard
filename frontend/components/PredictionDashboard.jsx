@@ -2,15 +2,13 @@ import { useState, useEffect, useRef } from 'react';
 import SidePanel from './SidePanel';
 import PredictionCard from './PredictionCard';
 import ConnectionStatus from './ConnectionStatus';
-import ModelSelectionModal from './ModelSelectionModal';
-import { 
-  getHealthStatus, 
-  createPredictionWebSocket, 
+import CandlestickChart from './CandlestickChart';
+import {
+  getHealthStatus,
+  createPredictionWebSocket,
   getLatestPrediction,
   startPredictionService,
-  stopPredictionService,
-  getModelsForPair,
-  selectModel
+  stopPredictionService
 } from '../services/api';
 
 const PredictionDashboard = () => {
@@ -19,12 +17,9 @@ const PredictionDashboard = () => {
   const [timezone, setTimezone] = useState('Asia/Bangkok');
   const [predictionActive, setPredictionActive] = useState(false);
   
-  // Model selection state
-  const [showModelSelection, setShowModelSelection] = useState(false);
-  const [availableModels, setAvailableModels] = useState([]);
+  // Model selection state (managed by SidePanel as single source of truth)
   const [selectedModel, setSelectedModel] = useState(null);
-  const [isLoadingModels, setIsLoadingModels] = useState(false);
-  
+
   // Prediction state
   const [prediction, setPrediction] = useState(null);
   const [predictionHistory, setPredictionHistory] = useState([]);
@@ -112,7 +107,7 @@ const PredictionDashboard = () => {
           if (data.type === 'prediction' && data.trading_pair === selectedPair) {
             // Add a timestamp to ensure we're getting fresh data
             const predictionData = {
-              direction: data.prediction, // Changed from data.direction to data.prediction
+              direction: (data.prediction || '').toLowerCase(),
               probability: data.probability,
               confidence: data.confidence,
               expectedChange: data.expected_change,
@@ -192,7 +187,7 @@ const PredictionDashboard = () => {
       
       // Format the prediction data
       const predictionData = {
-        direction: data.prediction,
+        direction: (data.prediction || '').toLowerCase(),
         probability: data.probability,
         confidence: data.confidence,
         expectedChange: data.expected_change,
@@ -232,201 +227,26 @@ const PredictionDashboard = () => {
     setTimezone(newTimezone);
   };
 
-  // SidePanel will manage start/stop directly
-  
-  // Fetch available models for the selected trading pair
-  const fetchAvailableModels = async () => {
-    console.log(`🔄 Starting to fetch models for pair: ${selectedPair}`);
-    setIsLoadingModels(true);
-    try {
-      console.log(`📡 Calling API to get models for pair: ${selectedPair}`);
-      const modelsData = await getModelsForPair(selectedPair);
-      console.log(`📊 Raw models data received:`, modelsData);
-      
-      // Create formatted models array
-      const formattedModels = [];
-      
-      // Process local models
-      if (modelsData.local_models && Array.isArray(modelsData.local_models)) {
-        modelsData.local_models.forEach(model => {
-          console.log(`🔍 Local model raw data:`, model);
-          console.log(`🔢 Local model accuracy sources:`, {
-            directAccuracy: model.accuracy,
-            metricsAccuracy: model.metrics?.accuracy,
-            rawModel: JSON.stringify(model)
-          });
-          
-          // Extract date from model name if available
-          let displayName = model.model_name || model.model_id;
-          let modelDate = 'Unknown';
-          let algorithmType = model.algorithm || 'unknown';
-          
-          // Parse date from model name (format: algorithm_tradingpair_YYYY-MM-DD)
-          if (displayName && displayName.includes('_')) {
-            const parts = displayName.split('_');
-            if (parts.length >= 3) {
-              // Last part should be the date
-              const dateStr = parts[parts.length - 1];
-              if (dateStr.match(/\d{4}-\d{2}-\d{2}/)) {
-                modelDate = dateStr;
-              }
-              // First part should be the algorithm
-              if (!model.algorithm && parts[0]) {
-                algorithmType = parts[0];
-              }
-            }
-          }
-          
-          formattedModels.push({
-            id: model.model_id || model.model_name,
-            name: displayName,
-            algorithm: algorithmType,
-            accuracy: model.accuracy || model.metrics?.accuracy || 0,
-            created_at: model.created_at || modelDate,
-            location: 'local'
-          });
-        });
-        console.log(`📊 Processed ${modelsData.local_models.length} local models`);
-      }
-      
-      // Process cloud models
-      if (modelsData.cloud_models && Array.isArray(modelsData.cloud_models)) {
-        modelsData.cloud_models.forEach(model => {
-          console.log(`🔍 Cloud model raw data:`, model);
-          console.log(`🔢 Cloud model accuracy sources:`, {
-            directAccuracy: model.accuracy,
-            metricsAccuracy: model.metrics?.accuracy,
-            rawModel: JSON.stringify(model)
-          });
-          
-          // Extract date from model name if available
-          let displayName = model.model_name || model.model_id;
-          let modelDate = 'Unknown';
-          let algorithmType = model.algorithm || 'unknown';
-          
-          // Parse date from model name (format: algorithm_tradingpair_YYYY-MM-DD)
-          if (displayName && displayName.includes('_')) {
-            const parts = displayName.split('_');
-            if (parts.length >= 3) {
-              // Last part should be the date
-              const dateStr = parts[parts.length - 1];
-              if (dateStr.match(/\d{4}-\d{2}-\d{2}/)) {
-                modelDate = dateStr;
-              }
-              // First part should be the algorithm
-              if (!model.algorithm && parts[0]) {
-                algorithmType = parts[0];
-              }
-            }
-          }
-          
-          formattedModels.push({
-            id: model.model_id || model.model_name,
-            name: displayName,
-            algorithm: algorithmType,
-            accuracy: model.accuracy || model.metrics?.accuracy || 0,
-            created_at: model.created_at || modelDate,
-            location: 'cloud'
-          });
-          console.log(`Model ${model.model_id || model.model_name} accuracy:`, model.accuracy || model.metrics?.accuracy || 0);
-        });
-        console.log(`📊 Processed ${modelsData.cloud_models.length} cloud models`);
-      }
-      
-      console.log(`✅ Total models available: ${formattedModels.length}`);
-      
-      if (formattedModels.length === 0) {
-        console.warn(`⚠️ No models found for pair: ${selectedPair}`);
-      } else {
-        console.log(`📋 Models available:`, formattedModels.map(m => ({ id: m.id, algorithm: m.algorithm })));
-      }
-      
-      // Sort by creation date (newest first)
-      formattedModels.sort((a, b) => {
-        const dateA = new Date(a.created_at);
-        const dateB = new Date(b.created_at);
-        return dateB - dateA;
-      });
-      
-      setAvailableModels(formattedModels);
-      
-      // Pre-select the newest model if any exist
-      if (formattedModels.length > 0) {
-        setSelectedModel(formattedModels[0]);
-      }
-    } catch (error) {
-      console.error('Failed to fetch models:', error);
-    } finally {
-      setIsLoadingModels(false);
-    }
-  };
-  
-  // Handle model selection confirmation
-  const handleModelSelectionConfirm = async () => {
-    setShowModelSelection(false);
-    if (selectedModel) {
-      console.log(`Selected model: ${selectedModel.name} (${selectedModel.algorithm})`);
-      
-      try {
-        // First select the model
-        await selectModel(
-          selectedPair, 
-          selectedModel.name, 
-          selectedModel.algorithm
-        );
-        console.log(`Model selection confirmed for ${selectedPair}: ${selectedModel.name}`);
-        
-        // Then start the prediction service
-        setPredictionActive(true);
-      } catch (error) {
-        console.error('Error selecting model:', error);
-        alert(`Failed to select model: ${error.message}`);
-      }
-    }
-  };
-  
-  // Handle model selection cancellation
-  const handleModelSelectionCancel = () => {
-    setShowModelSelection(false);
-    setSelectedModel(null);
-  };
+  // SidePanel will manage start/stop and model selection directly
 
   return (
     <div className="dashboard-container">
-      {/* Model Selection Modal */}
-      {showModelSelection && (
-        <ModelSelectionModal
-          isOpen={showModelSelection}
-          models={availableModels}
-          selectedModel={selectedModel}
-          onSelectModel={setSelectedModel}
-          onConfirm={handleModelSelectionConfirm}
-          onCancel={handleModelSelectionCancel}
-          formatModelName={(model) => {
-            // Create a user-friendly display name
-            const algorithm = model.algorithm || 'Unknown';
-            const date = model.created_at || 'Unknown date';
-            return `${algorithm.toUpperCase()} (${date})`;
-          }}
-          isLoading={isLoadingModels}
-        />
-      )}
       {/* Header */}
       <header className="header">
         <div className="header-title">
-          🤖 OTC Predictor - USD/BRL(OTC) ML Prediction Dashboard
+          OTC Predictor - ML Prediction Dashboard
         </div>
         <div className="header-controls">
-          <ConnectionStatus 
+          <ConnectionStatus
             wsConnected={wsConnected}
             backendStatus={backendStatus}
           />
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="main-content">
-        {/* Left Panel - Netflix Side Panel */}
+      {/* Main Content: SidePanel | Chart | Predictions */}
+      <div className="main-content three-col">
+        {/* Left Panel */}
         <div className="config-panel">
           <SidePanel
             selectedPair={selectedPair}
@@ -435,6 +255,14 @@ const PredictionDashboard = () => {
             onModelChange={setSelectedModel}
             predictionActive={predictionActive}
             setPredictionActive={setPredictionActive}
+          />
+        </div>
+
+        {/* Center Panel - Candlestick Chart */}
+        <div className="chart-center-panel">
+          <CandlestickChart
+            tradingPair={selectedPair}
+            prediction={prediction}
           />
         </div>
 
@@ -466,10 +294,10 @@ const PredictionDashboard = () => {
               <div className="history-list">
                 {predictionHistory.map((pred, index) => (
                   <div key={index} className="history-item">
-                    <PredictionCard 
-                      prediction={pred} 
-                      timezone={timezone} 
-                      compact={true} 
+                    <PredictionCard
+                      prediction={pred}
+                      timezone={timezone}
+                      compact={true}
                     />
                   </div>
                 ))}

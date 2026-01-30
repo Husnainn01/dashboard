@@ -392,118 +392,6 @@ export const createMarketDataWebSocket = () => new WebSocket(`${getWsBase()}/ws/
 export const createUnifiedWebSocket = () => new WebSocket(`${getWsBase()}/ws`);
 
 // =============================================================================
-// LEGACY COMPATIBILITY
-// =============================================================================
-
-/**
- * Fetch mock data - Updated to use real API data
- * @returns {Promise<Object>} Real candle and prediction data
- */
-export const fetchMockData = async () => {
-  try {
-    const [candles, prediction] = await Promise.all([
-      fetchLatestCandles({ limit: 20 }),
-      getLatestPrediction().catch(() => null) // Don't fail if no prediction available
-    ]);
-    
-    return {
-      candles: candles?.candles || [],
-      prediction: prediction
-    };
-  } catch (error) {
-    console.warn('⚠️ Failed to fetch real data, using fallback');
-    return {
-      candles: [],
-      prediction: null
-    };
-  }
-};
-
-/**
- * Start bot - Updated to start prediction service
- * @returns {Promise<Object>} Response
- */
-export const startBot = async () => {
-  try {
-    return await startPredictionService();
-  } catch (error) {
-    return { 
-      success: false, 
-      message: error.message
-    };
-  }
-};
-
-/**
- * Stop bot - Updated to stop prediction service
- * @returns {Promise<Object>} Response  
- */
-export const stopBot = async () => {
-  try {
-    return await stopPredictionService();
-  } catch (error) {
-    return { 
-      success: false, 
-      message: error.message
-    };
-  }
-};
-
-/**
- * Get bot status - Updated to show system status
- * @returns {Promise<Object>} System status
- */
-export const getBotStatus = async () => {
-  try {
-    const status = await getSystemStatus();
-    return {
-      running: status.prediction?.status === 'running',
-      uptime: status.prediction?.uptime_seconds || 0,
-      candlesProcessed: status.data_collection?.stats?.total_collections || 0,
-      lastPrediction: status.prediction?.last_prediction || null,
-      modelsLoaded: Object.keys(status.prediction?.active_models || {}).length
-    };
-  } catch (error) {
-    return {
-      running: false,
-      uptime: 0,
-      candlesProcessed: 0,
-      lastPrediction: null,
-      modelsLoaded: 0,
-      error: error.message
-    };
-  }
-};
-
-/**
- * Fetch historical data - Updated to use real API
- * @param {Object} params - Query parameters
- * @returns {Promise<Array>} Historical candle data
- */
-export const fetchHistoricalData = async (params = {}) => {
-  return await fetchLatestCandles({
-    trading_pair: params.tradingPair || 'USD/BRL(OTC)',
-    limit: params.count || 50
-  });
-};
-
-/**
- * Save settings - Placeholder for future settings API
- * @param {Object} settings - Settings to save
- * @returns {Promise<Object>} Response
- */
-export const saveSettings = async (settings) => {
-  console.log('💾 Settings save requested:', settings);
-  // For now, just store in localStorage
-  localStorage.setItem('otc_predictor_settings', JSON.stringify(settings));
-  return { 
-    success: true, 
-    message: 'Settings saved locally',
-    settings
-  };
-};
-
-// =============================================================================
 // EXPORTS
 // =============================================================================
 
@@ -512,14 +400,14 @@ export default {
   getHealthStatus,
   getSystemStatus,
   getDatabaseStats,
-  
+
   // Candle Data
   fetchLatestCandles,
-  
+
   // ML Predictions
   getLatestPrediction,
   requestPrediction,
-  
+
   // Model Management
   getModelsInfo,
   getModelsForPair,
@@ -527,22 +415,14 @@ export default {
   getTrainingStatus,
   getTrainingQueueStatus,
   getTradingPairs,
-  
+
   // Prediction Service Control
   startPredictionService,
   stopPredictionService,
   selectModel,
-  
+
   // WebSocket Connections
   createPredictionWebSocket,
   createMarketDataWebSocket,
   createUnifiedWebSocket,
-  
-  // Legacy Compatibility
-  fetchMockData,
-  startBot,
-  stopBot,
-  getBotStatus,
-  fetchHistoricalData,
-  saveSettings
 };

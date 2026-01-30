@@ -20,7 +20,7 @@ DEFAULT_TRADING_PAIRS = [
 
 # ML Model Configuration
 MODEL_RETRAIN_INTERVAL = int(os.environ.get("MODEL_RETRAIN_INTERVAL", "24"))  # hours
-MIN_TRAINING_SAMPLES = int(os.environ.get("MIN_TRAINING_SAMPLES", "50"))  # minimum samples required for training
+MIN_TRAINING_SAMPLES = int(os.environ.get("MIN_TRAINING_SAMPLES", "200"))  # minimum samples required for training
 PREDICTION_CONFIDENCE_THRESHOLD = float(os.environ.get("PREDICTION_CONFIDENCE_THRESHOLD", "0.55"))  # minimum confidence for predictions
 
 # Auto-Training Configuration - Enhanced for USD/BRL(OTC)
@@ -38,11 +38,11 @@ AUTO_TRAINING = {
 
 # R2 Storage Configuration
 R2_CONFIG = {
-    "access_key": os.environ.get("R2_ACCESS_KEY", "d9a6fe72723211dee3e123b32a25ebba"),
-    "secret_key": os.environ.get("R2_SECRET_KEY", "205483e352a6af41c9dc40022dfe3eedba21422a7e393f8d155fae1dd128ce75"),
-    "endpoint_url": os.environ.get("R2_ENDPOINT_URL", "https://dffe00b2c327c69b4a869d74b4e7a2a2.r2.cloudflarestorage.com"),
-    "bucket_name": os.environ.get("R2_BUCKET_NAME", "quotex"),
-    "account_id": os.environ.get("R2_ACCOUNT_ID", "dffe00b2c327c69b4a869d74b4e7a2a2"),
+    "access_key": os.environ.get("R2_ACCESS_KEY", ""),
+    "secret_key": os.environ.get("R2_SECRET_KEY", ""),
+    "endpoint_url": os.environ.get("R2_ENDPOINT_URL", ""),
+    "bucket_name": os.environ.get("R2_BUCKET_NAME", ""),
+    "account_id": os.environ.get("R2_ACCOUNT_ID", ""),
 }
 
 # Storage Configuration

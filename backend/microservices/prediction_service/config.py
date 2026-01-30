@@ -41,11 +41,11 @@ BRAZIL_MARKET_HOURS = {
 
 # R2 Storage Configuration
 R2_CONFIG = {
-    "access_key": os.environ.get("R2_ACCESS_KEY", "d9a6fe72723211dee3e123b32a25ebba"),
-    "secret_key": os.environ.get("R2_SECRET_KEY", "205483e352a6af41c9dc40022dfe3eedba21422a7e393f8d155fae1dd128ce75"),
-    "endpoint_url": os.environ.get("R2_ENDPOINT_URL", "https://dffe00b2c327c69b4a869d74b4e7a2a2.r2.cloudflarestorage.com"),
-    "bucket_name": os.environ.get("R2_BUCKET_NAME", "quotex"),
-    "account_id": os.environ.get("R2_ACCOUNT_ID", "dffe00b2c327c69b4a869d74b4e7a2a2"),
+    "access_key": os.environ.get("R2_ACCESS_KEY", ""),
+    "secret_key": os.environ.get("R2_SECRET_KEY", ""),
+    "endpoint_url": os.environ.get("R2_ENDPOINT_URL", ""),
+    "bucket_name": os.environ.get("R2_BUCKET_NAME", ""),
+    "account_id": os.environ.get("R2_ACCOUNT_ID", ""),
 }
 
 # Storage Configuration

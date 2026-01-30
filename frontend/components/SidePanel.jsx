@@ -5,9 +5,10 @@ import {
   selectModel,
   startPredictionService,
   stopPredictionService,
+  getTradingPairs,
 } from '../services/api';
 
-const pairs = [
+const DEFAULT_PAIRS = [
   { value: 'USD/BRL(OTC)', label: 'USD/BRL OTC', flag: '🇺🇸🇧🇷' },
 ];
 
@@ -19,12 +20,32 @@ export default function SidePanel({
   predictionActive,
   setPredictionActive,
 }) {
+  const [pairs, setPairs] = useState(DEFAULT_PAIRS);
   const [loadingModels, setLoadingModels] = useState(false);
   const [models, setModels] = useState([]);
   const [isTraining, setIsTraining] = useState(false);
   const [trainMsg, setTrainMsg] = useState(null);
   const [serviceBusy, setServiceBusy] = useState(false);
   const [trainingAlgo, setTrainingAlgo] = useState(null);
+
+  // Fetch trading pairs from API on mount
+  useEffect(() => {
+    const fetchPairs = async () => {
+      try {
+        const data = await getTradingPairs();
+        if (data?.trading_pairs?.length) {
+          setPairs(data.trading_pairs.map((p) => ({
+            value: p,
+            label: p.replace('_otc', ' OTC').replace('_', '/'),
+            flag: '',
+          })));
+        }
+      } catch (e) {
+        console.warn('Failed to fetch trading pairs, using defaults', e);
+      }
+    };
+    fetchPairs();
+  }, []);
 
   // Load models when pair changes
   useEffect(() => {

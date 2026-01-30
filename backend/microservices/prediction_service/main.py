@@ -66,10 +66,10 @@ import monitoring
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
+    allow_origins=os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(","),
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # WebSocket connection manager
@@ -174,8 +174,11 @@ async def initialize_service():
     logger.info("🚀 Initializing Prediction Service...")
     
     # Initialize MongoDB connection
-    mongodb_uri = "mongodb+srv://dash:JBuim9uQ8CbXPd1K@dashbaord.zsslbre.mongodb.net/otc-predictor"
-    logger.info(f"Using MongoDB URI: {mongodb_uri}")
+    mongodb_uri = os.environ.get("MONGODB_URI", "")
+    if not mongodb_uri:
+        logger.warning("⚠️ MONGODB_URI not set. Database features will be unavailable.")
+    else:
+        logger.info(f"Using MongoDB URI: {mongodb_uri[:30]}...")
     mongodb_manager = MongoDBManager(uri=mongodb_uri)
     if not await mongodb_manager.connect():
         logger.error("❌ Failed to connect to MongoDB")

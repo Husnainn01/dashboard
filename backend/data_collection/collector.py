@@ -46,7 +46,7 @@ class DataCollector:
         
         # Storage
         # Use provided MongoDB connection if available, otherwise create a new one
-        self.db = db if db is not None else MongoDBManager(uri="mongodb+srv://dash:JBuim9uQ8CbXPd1K@dashbaord.zsslbre.mongodb.net/otc-predictor")
+        self.db = db if db is not None else MongoDBManager(uri=os.getenv('MONGODB_URI', ''))
         self.collected_candles = []
         
         # Setup logging
@@ -104,10 +104,9 @@ class DataCollector:
         try:
             self.logger.info("🔌 Connecting to MongoDB...")
             
-            # Make sure MongoDB URI is set correctly
-            if not self.db.uri or "localhost" in self.db.uri:
-                self.db.uri = "mongodb+srv://dash:JBuim9uQ8CbXPd1K@dashbaord.zsslbre.mongodb.net/otc-predictor"
-                self.logger.info(f"Updated MongoDB URI to: {self.db.uri}")
+            # Warn if MongoDB URI is not set
+            if not self.db.uri:
+                self.logger.warning("⚠️ MONGODB_URI is not configured")
                 
             # Connect to MongoDB first if not already connected
             if not self.db.is_connected:

@@ -1,11 +1,10 @@
 [build]
-builder = "DOCKERFILE"
-dockerfilePath = "backend/microservices/api_gateway/Dockerfile"
+builder = "nixpacks"
+buildCommand = "pip install -r requirements.txt"
 
 [deploy]
-startCommand = "python main.py"
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 10
-
-[service]
-port = 5001
+startCommand = "python -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-5001}"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5
