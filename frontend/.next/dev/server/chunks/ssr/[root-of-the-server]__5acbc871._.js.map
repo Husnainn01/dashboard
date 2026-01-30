@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 10, "column": 0}, "map": {"version":3,"sources":["file:///Users/husnain/Desktop/webs/dashboard/frontend/pages/_app.jsx"],"sourcesContent":["import '../styles/globals.css';\nimport '../styles/prediction.css';\nimport '../styles/chart.css';\nimport '../styles/netflix.css';\n\n// Main application component - Simple and clean without Material-UI\nfunction MyApp({ Component, pageProps }) {\n  return <Component {...pageProps} />;\n}\n\nexport default MyApp;"],"names":[],"mappings":";;;;;;;;;;AAKA,oEAAoE;AACpE,SAAS,MAAM,EAAE,SAAS,EAAE,SAAS,EAAE;IACrC,qBAAO,qKAAC;QAAW,GAAG,SAAS;;;;;;AACjC;uCAEe"}}]
+}
