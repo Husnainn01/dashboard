@@ -8,6 +8,7 @@ import asyncio
 import logging
 import sys
 import signal
+import resource
 from datetime import datetime, timedelta
 from pathlib import Path
 import os
@@ -55,7 +56,15 @@ async def lifespan(app: FastAPI):
         # Ensure the run loop actually starts
         data_service_running = True
         asyncio.create_task(run_data_service())
-    
+
+    # Start periodic WebSocket cleanup task
+    async def ws_cleanup_loop():
+        while True:
+            await asyncio.sleep(60)
+            await manager.cleanup_stale_connections()
+
+    asyncio.create_task(ws_cleanup_loop())
+
     yield
     
     # Shutdown: Stop data collection and disconnect from MongoDB
@@ -87,49 +96,69 @@ app.add_middleware(
 
 # WebSocket connection manager
 class ConnectionManager:
+    MAX_CONNECTIONS = 100
+
     def __init__(self):
         self.active_connections = []
         self.subscriptions = {}
-    
+
     async def connect(self, websocket: WebSocket):
+        # Reject if at capacity
+        if len(self.active_connections) >= self.MAX_CONNECTIONS:
+            logger.warning(f"WebSocket connection rejected: at capacity ({self.MAX_CONNECTIONS})")
+            await websocket.close(code=1013)  # Try Again Later
+            return
         await websocket.accept()
         self.active_connections.append(websocket)
         self.subscriptions[websocket] = []
         logger.info(f"📡 WebSocket client connected. Active connections: {len(self.active_connections)}")
-    
+
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
         if websocket in self.subscriptions:
             del self.subscriptions[websocket]
         logger.info(f"📡 WebSocket client disconnected. Active connections: {len(self.active_connections)}")
-    
+
     async def send_personal_message(self, message: dict, websocket: WebSocket):
         try:
             await websocket.send_json(message)
         except Exception as e:
             logger.error(f"❌ Error sending WebSocket message: {str(e)}")
             self.disconnect(websocket)
-    
+
     async def broadcast(self, message: dict, trading_pair: str = None):
         if not self.active_connections:
             return
-            
+
         disconnected = []
         for connection in self.active_connections:
             try:
                 # Check if client is subscribed to this trading pair
                 if trading_pair and trading_pair not in self.subscriptions.get(connection, []):
                     continue
-                    
+
                 await connection.send_json(message)
             except Exception as e:
                 logger.error(f"❌ WebSocket broadcast error: {e}")
                 disconnected.append(connection)
-        
+
         # Clean up disconnected clients
         for connection in disconnected:
             self.disconnect(connection)
+
+    async def cleanup_stale_connections(self):
+        """Ping all connections and remove dead ones"""
+        dead = []
+        for conn in self.active_connections:
+            try:
+                await asyncio.wait_for(conn.send_json({"type": "ping"}), timeout=5)
+            except Exception:
+                dead.append(conn)
+        for conn in dead:
+            self.disconnect(conn)
+        if dead:
+            logger.info(f"Cleaned up {len(dead)} stale WebSocket connections")
 
 # Create connection manager
 manager = ConnectionManager()
@@ -344,8 +373,8 @@ class ContinuousDataService:
                     if asset == priority_api:
                         continue
                     try:
-                        candle = await self.collector.collect_candle_data(asset)
-                        if candle:
+                        asset_candles = await self.collector.collect_candle_data(asset)
+                        for candle in asset_candles:
                             candle_id = await self.mongodb.save_candle(candle)
                             candle._id = candle_id
                             candles.append(candle)
@@ -482,12 +511,11 @@ class ContinuousDataService:
         if self.is_optimized_for_usd_brl and self.historical_data_days > 0:
             await self.collect_historical_data()
         
-        # Track last successful ping time
+        # Track last successful collection time for watchdog
         last_ping_time = datetime.now()
-        ping_interval = 60  # Send ping every 60 seconds
-        reconnect_threshold = 180  # Force reconnect if no successful ping for 3 minutes
-        hard_watchdog_threshold = 600  # If no successful ping for 10 minutes, perform hard reset
-        ping_failures = 0  # Count consecutive ping failures/timeouts to react faster
+        reconnect_threshold = 180  # Force reconnect if no successful collection for 3 minutes
+        hard_watchdog_threshold = 600  # Hard reset if no success for 10 minutes
+        ping_failures = 0  # Count consecutive failures to react faster
         
         try:
             while not self.should_stop:
@@ -496,28 +524,7 @@ class ContinuousDataService:
                 # Check if we need to send a ping or force reconnect
                 time_since_last_ping = (datetime.now() - last_ping_time).total_seconds()
                 
-                # Send ping to keep connection alive
-                if time_since_last_ping >= ping_interval:
-                    try:
-                        logger.info("📡 Sending ping to keep connection alive...")
-                        if self.collector and self.collector.client and self.collector.is_connected:
-                            # Use a simple API call as a ping with timeout so we don't hang indefinitely
-                            profile = await asyncio.wait_for(self.collector.client.get_profile(), timeout=10)
-                            if profile:
-                                logger.info("✅ Ping successful")
-                                last_ping_time = datetime.now()
-                                ping_failures = 0
-                            else:
-                                logger.warning("⚠️ Ping returned no data")
-                                ping_failures += 1
-                    except asyncio.TimeoutError:
-                        logger.warning("⚠️ Ping timed out (10s)")
-                        ping_failures += 1
-                    except Exception as e:
-                        logger.warning(f"⚠️ Ping failed: {str(e)}")
-                        ping_failures += 1
-
-                # If multiple consecutive ping failures, proactively reconnect sooner
+                # If no successful collection for a while, proactively reconnect
                 if ping_failures >= 3:
                     logger.warning(f"⚠️ {ping_failures} consecutive ping failures. Proactively reconnecting...")
                     try:
@@ -570,36 +577,35 @@ class ContinuousDataService:
                             last_ping_time = datetime.now()
                             ping_failures = 0
                         else:
-                            logger.error("❌ Hard reset reconnection failed")
+                            logger.critical("Hard reset failed. Exiting for container restart.")
+                            sys.exit(1)
                     except Exception as e:
-                        logger.error(f"❌ Hard reset error: {e}")
+                        logger.critical(f"Hard reset error: {e}. Exiting for container restart.")
+                        sys.exit(1)
                 
-                # Synchronize with market timing for more accurate data
-                # For 1-minute candles, align collection to start a few seconds after the minute
-                current_time = datetime.now()
-                seconds_past_minute = current_time.second
-                
-                # If we're close to the end of the minute, wait until the next minute + 2 seconds
-                # This ensures we collect data right after a candle closes
-                if seconds_past_minute > 50:
-                    wait_seconds = 62 - seconds_past_minute
-                    logger.info(f"⏱️ Synchronizing with market timing, waiting {wait_seconds} seconds...")
-                    
-                    # Sleep with periodic wake-ups to check stop signal
-                    for _ in range(int(wait_seconds / 2) + 1):
-                        if self.should_stop:
-                            break
-                        await asyncio.sleep(min(2, wait_seconds))
-                        wait_seconds -= 2
-                        if wait_seconds <= 0:
-                            break
-                
+                # Align collection to 3 seconds after the next minute boundary
+                # This guarantees exactly 1 collection per candle, timed after candle close
+                now = datetime.now()
+                next_minute = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
+                wait_until = next_minute + timedelta(seconds=3)  # 3s after candle close
+                sleep_seconds = (wait_until - now).total_seconds()
+                logger.info(f"⏱️ Waiting {sleep_seconds:.1f}s until next minute boundary + 3s...")
+                # Interruptible sleep in 2s chunks
+                while sleep_seconds > 0 and not self.should_stop:
+                    await asyncio.sleep(min(2, sleep_seconds))
+                    sleep_seconds -= 2
+
                 # Execute collection cycle
                 success = await self.collect_data_cycle()
                 
-                # If collection was successful, update last ping time
+                # Collection success is the liveness signal (replaces standalone ping)
                 if success:
                     last_ping_time = datetime.now()
+                    ping_failures = 0
+                    # Auto-detect and fill any data gaps
+                    await self.detect_and_fill_gaps()
+                else:
+                    ping_failures += 1
                 
                 # Update uptime
                 if self.stats['service_started']:
@@ -613,50 +619,32 @@ class ContinuousDataService:
                     if self.stats['total_collections'] % 10 == 0:  # Every 10 cycles
                         self.log_statistics()
                 
-                # Calculate sleep time - adjusted for USD/BRL(OTC) priority
-                cycle_duration = (datetime.now() - cycle_start).total_seconds()
-                sleep_time = max(0, self.collection_interval - cycle_duration)
-                
-                if sleep_time > 0:
-                    logger.info(f"⏳ Next collection in {sleep_time:.1f}s...")
-                    
-                    # Sleep with periodic wake-ups to check stop signal and ping needs
-                    sleep_intervals = int(sleep_time / 2) + 1  # More frequent wake-ups
-                    for _ in range(sleep_intervals):
-                        if self.should_stop:
-                            break
-                        
-                        # Check if we need to ping during long sleep periods
-                        current_time_since_ping = (datetime.now() - last_ping_time).total_seconds()
-                        if current_time_since_ping >= ping_interval:
-                            try:
-                                logger.info("📡 Sending ping during sleep period...")
-                                if self.collector and self.collector.client and self.collector.is_connected:
-                                    profile = await asyncio.wait_for(self.collector.client.get_profile(), timeout=10)
-                                    if profile:
-                                        logger.info("✅ Sleep period ping successful")
-                                        last_ping_time = datetime.now()
-                                        ping_failures = 0
-                                    else:
-                                        logger.warning("⚠️ Sleep period ping returned no data")
-                                        ping_failures += 1
-                            except asyncio.TimeoutError:
-                                logger.warning("⚠️ Sleep period ping timed out (10s)")
-                                ping_failures += 1
-                            except Exception as e:
-                                logger.warning(f"⚠️ Sleep period ping failed: {str(e)}")
-                                ping_failures += 1
-                        
-                        await asyncio.sleep(min(2, sleep_time))  # Shorter sleep intervals
-                        sleep_time -= 2
-                        if sleep_time <= 0:
-                            break
+                # No separate sleep needed — minute-boundary alignment at top of loop handles timing
                 
         except Exception as e:
             logger.error(f"❌ Critical service error: {str(e)}")
         finally:
             await self.shutdown()
             
+    async def detect_and_fill_gaps(self):
+        """Detect gaps in candle data and auto-repair by backfilling missing candles"""
+        try:
+            latest = await self.mongodb.get_candles(trading_pair=self.priority_pair, limit=1)
+            if not latest:
+                return
+            gap_seconds = (datetime.now() - latest[0]["timestamp"]).total_seconds()
+            if gap_seconds > 120:  # More than 2 minutes behind
+                gap_days = max(1, int(gap_seconds / 86400) + 1)
+                logger.warning(f"Gap detected: {gap_seconds:.0f}s behind. Backfilling {gap_days} day(s)...")
+                candles = await self.collector.get_historical_candles(
+                    asset=self.priority_pair, days=gap_days, timeframe=self.timeframe
+                )
+                if candles:
+                    saved = await self.collector.process_historical_candles(candles, self.priority_pair)
+                    logger.info(f"Gap fill complete: {saved} candles backfilled")
+        except Exception as e:
+            logger.error(f"Error in gap detection: {e}")
+
     async def collect_historical_data(self):
         """Collect historical data for USD/BRL(OTC)"""
         try:
@@ -751,38 +739,49 @@ class ContinuousDataService:
             # Continue with real-time collection even if historical collection fails
     
     def log_statistics(self):
-        """Log service statistics - Enhanced for USD/BRL(OTC)"""
-        
+        """Log service statistics - Enhanced for USD/BRL(OTC) with memory monitoring"""
+
         uptime_hours = self.stats['uptime_seconds'] / 3600
         success_rate = (self.stats['successful_collections'] / max(1, self.stats['total_collections'])) * 100
-        
+
+        # Memory monitoring via resource.getrusage()
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        # ru_maxrss is in bytes on Linux, kilobytes on macOS
+        rss_mb = usage.ru_maxrss / (1024 * 1024) if sys.platform == 'linux' else usage.ru_maxrss / 1024
+
         logger.info("📊 Service Statistics:")
-        logger.info(f"  🕐 Uptime: {uptime_hours:.2f} hours")
-        logger.info(f"  📈 Collections: {self.stats['total_collections']} total, {self.stats['successful_collections']} successful")
-        logger.info(f"  ✅ Success rate: {success_rate:.1f}%")
-        logger.info(f"  🔄 Reconnections: {self.stats['reconnection_attempts']}")
-        
+        logger.info(f"  Uptime: {uptime_hours:.2f} hours")
+        logger.info(f"  Collections: {self.stats['total_collections']} total, {self.stats['successful_collections']} successful")
+        logger.info(f"  Success rate: {success_rate:.1f}%")
+        logger.info(f"  Reconnections: {self.stats['reconnection_attempts']}")
+        logger.info(f"  Memory RSS: {rss_mb:.1f} MB")
+
         # USD/BRL(OTC) specific statistics
         if self.is_optimized_for_usd_brl:
             usd_brl_rate = (self.stats['usd_brl_collections'] / max(1, self.stats['total_collections'])) * 100
-            logger.info(f"  🇧🇷 USD/BRL(OTC) collections: {self.stats['usd_brl_collections']} ({usd_brl_rate:.1f}%)")
-            logger.info(f"  🔍 Data quality issues: {self.stats['data_quality_issues']}")
-            logger.info(f"  🔁 Retry attempts: {self.stats['retries']}")
-        
+            logger.info(f"  USD/BRL(OTC) collections: {self.stats['usd_brl_collections']} ({usd_brl_rate:.1f}%)")
+            logger.info(f"  Data quality issues: {self.stats['data_quality_issues']}")
+            logger.info(f"  Retry attempts: {self.stats['retries']}")
+
         if self.stats['last_collection']:
             minutes_ago = (datetime.now() - self.stats['last_collection']).total_seconds() / 60
-            logger.info(f"  ⏰ Last collection: {minutes_ago:.1f} minutes ago")
-            
+            logger.info(f"  Last collection: {minutes_ago:.1f} minutes ago")
+
+        # Memory guard: exit if RSS exceeds 450MB for container restart
+        if rss_mb > 450:
+            logger.critical(f"Memory usage {rss_mb:.1f} MB exceeds 450 MB limit. Exiting for container restart.")
+            sys.exit(1)
+
         # Database statistics (if available)
         try:
             if self.mongodb and hasattr(self.mongodb, 'get_stats_sync'):
                 db_stats = self.mongodb.get_stats_sync()
                 if db_stats and 'candles' in db_stats:
-                    logger.info(f"  💾 Database: {db_stats['candles'].get('count', 0)} total candles")
-                    
+                    logger.info(f"  Database: {db_stats['candles'].get('count', 0)} total candles")
+
                     # USD/BRL(OTC) specific count if available
                     if 'pair_counts' in db_stats and self.priority_pair in db_stats['pair_counts']:
-                        logger.info(f"  🇧🇷 USD/BRL(OTC) candles: {db_stats['pair_counts'][self.priority_pair]}")
+                        logger.info(f"  USD/BRL(OTC) candles: {db_stats['pair_counts'][self.priority_pair]}")
         except Exception as e:
             pass  # Silently ignore database stats errors
     
@@ -1065,10 +1064,13 @@ async def broadcast_market_update(candle_data: CandleData):
 async def run_data_service():
     """Run the data collection service with auto-restart watchdog"""
     global data_service, data_service_running
-    
+
     restart_attempt = 0
     max_backoff = 60
-    
+    max_consecutive_restarts = 10
+    last_stable_time = datetime.now()
+    stable_threshold = 300  # 5 minutes of stable operation resets counter
+
     while data_service_running:
         try:
             # Initialize data service
@@ -1076,27 +1078,41 @@ async def run_data_service():
             if not await data_service.initialize():
                 logger.error("❌ Failed to initialize data service")
                 break
-            
+
             # Run continuous collection
             await data_service.run_continuous_collection()
-            
+
+            # If we ran for more than stable_threshold, reset restart counter
+            if data_service.stats.get('uptime_seconds', 0) >= stable_threshold:
+                restart_attempt = 0
+                last_stable_time = datetime.now()
+
             # If loop exits normally (should_stop), break if stop requested
             if data_service.should_stop:
                 break
-            
+
         except Exception as e:
             logger.error(f"❌ Data service error: {str(e)}")
         finally:
             # If we are still marked running, sleep with backoff and restart
             if data_service_running and (not data_service or not data_service.should_stop):
                 restart_attempt += 1
+
+                # Exit if too many consecutive restarts without stable operation
+                if restart_attempt > max_consecutive_restarts:
+                    logger.critical(
+                        f"Exceeded {max_consecutive_restarts} consecutive restarts without "
+                        f"{stable_threshold}s of stable operation. Exiting for container restart."
+                    )
+                    sys.exit(1)
+
                 backoff = min(max_backoff, 2 * restart_attempt)
-                logger.warning(f"🔁 Restarting data service in {backoff}s (attempt {restart_attempt})...")
+                logger.warning(f"🔁 Restarting data service in {backoff}s (attempt {restart_attempt}/{max_consecutive_restarts})...")
                 await asyncio.sleep(backoff)
                 continue
             else:
                 break
-    
+
     data_service_running = False
     logger.info("🛑 Data service stopped")
 

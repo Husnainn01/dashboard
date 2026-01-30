@@ -279,9 +279,11 @@ class DataCollector:
             except Exception as de:
                 self.logger.warning(f"⚠️ Error while disconnecting from MongoDB: {de}")
     
-    async def collect_candle_data(self, asset: str) -> Optional[CandleData]:
+    async def collect_candle_data(self, asset: str) -> List[CandleData]:
         """
-        Collect current candle data for an asset using PyQuotex API
+        Collect current candle data for an asset using PyQuotex API.
+        Returns all completed candles (excludes the last which may be incomplete).
+        Atomic upsert ensures no duplicates — free micro-gap repair.
         """
         try:
             if not self.is_connected:
@@ -300,8 +302,8 @@ class DataCollector:
             
             self.logger.info(f"📊 Collecting candle data for {asset}...")
             
-            # Setup retrieval window
-            offset = 3600  # seconds
+            # Setup retrieval window: 5 minutes = 5 candles (reduced from 3600s/60 candles)
+            offset = 300  # seconds
             period = self.timeframe
             end_from_time = time.time()
 
@@ -389,46 +391,47 @@ class DataCollector:
                 self.logger.error(f"❌ Traceback: {traceback.format_exc()}")
                 return None
             
-            # Get the latest completed candle (second to last, as last might be incomplete)
-            latest_candle = candles_data[-2] if len(candles_data) > 1 else candles_data[-1]
-            
-            # Handle different candle data formats
-            if not latest_candle.get("open"):
-                # Process candles if needed (following PyQuotex example)
+            # Process candles if needed (following PyQuotex example)
+            test_candle = candles_data[0] if candles_data else {}
+            if not test_candle.get("open"):
                 from pyquotex.utils.processor import process_candles
-                processed_candles = process_candles(candles_data, period)
-                if processed_candles and len(processed_candles) > 0:
-                    latest_candle = processed_candles[-2] if len(processed_candles) > 1 else processed_candles[-1]
+                processed = process_candles(candles_data, period)
+                if processed and len(processed) > 0:
+                    candles_data = processed
                 else:
                     self.logger.warning(f"⚠️ Could not process candle data for {asset}")
-                    return None
-            
-            # Build CandleData using the requested name normalized to API style (e.g., 'BRLUSD_otc')
+                    return []
+
+            # Return all completed candles (exclude last which may be incomplete)
+            completed_raw = candles_data[:-1] if len(candles_data) > 1 else candles_data
             formatted_pair = requested_name
 
-            candle = CandleData(
-                timestamp=datetime.fromtimestamp(latest_candle.get('time', time.time())),
-                trading_pair=formatted_pair,
-                open_price=float(latest_candle.get('open', 0)),
-                high_price=float(latest_candle.get('high', latest_candle.get('max', 0))),
-                low_price=float(latest_candle.get('low', latest_candle.get('min', 0))),
-                close_price=float(latest_candle.get('close', 0)),
-                volume=0,  # Default volume
-                is_closed=True,
-                is_validated=False,
-                source='pyquotex_api',
-                asset=source_symbol_used or asset_to_use,
-                period=period
-            )
-            
-            self.logger.info(f"✅ Collected {formatted_pair}: {candle.direction} candle, change: {candle.change:.5f}")
-            return candle
-            
+            result = []
+            for raw in completed_raw:
+                candle = CandleData(
+                    timestamp=datetime.fromtimestamp(raw.get('time', time.time())),
+                    trading_pair=formatted_pair,
+                    open_price=float(raw.get('open', 0)),
+                    high_price=float(raw.get('high', raw.get('max', 0))),
+                    low_price=float(raw.get('low', raw.get('min', 0))),
+                    close_price=float(raw.get('close', 0)),
+                    volume=0,
+                    is_closed=True,
+                    is_validated=False,
+                    source='pyquotex_api',
+                    asset=source_symbol_used or asset_to_use,
+                    period=period
+                )
+                result.append(candle)
+
+            self.logger.info(f"✅ Collected {len(result)} completed candles for {formatted_pair}")
+            return result
+
         except Exception as e:
             self.logger.error(f"❌ Error collecting candle for {asset}: {str(e)}")
             import traceback
             self.logger.error(f"❌ Traceback: {traceback.format_exc()}")
-            return None
+            return []
     
     async def collect_realtime_data(self, asset: str) -> Optional[Dict]:
         """
@@ -585,13 +588,7 @@ class DataCollector:
                     period=period
                 )
                 try:
-                    # Skip if already exists to reduce unnecessary writes
-                    existing = await self.db.db.candles.find_one({
-                        "trading_pair": candle.trading_pair,
-                        "timestamp": candle.timestamp
-                    })
-                    if existing:
-                        continue
+                    # Atomic upsert: no race condition, handles duplicates gracefully
                     await self.db.save_candle(candle)
                     saved += 1
                 except Exception as se:
@@ -607,53 +604,51 @@ class DataCollector:
         Collect candle data for all configured trading pairs
         """
         collected = []
-        
+
         for asset in self.trading_pairs:
             try:
-                candle = await self.collect_candle_data(asset)
-                if candle:
-                    # Save to MongoDB
+                candles = await self.collect_candle_data(asset)
+                for candle in candles:
+                    # Save to MongoDB (atomic upsert handles duplicates)
                     candle_id = await self.db.save_candle(candle)
                     candle._id = candle_id
                     collected.append(candle)
-                    
                     self.logger.info(f"💾 Saved {asset} candle to MongoDB (ID: {candle_id})")
-                
+
                 # Small delay between requests
                 await asyncio.sleep(1)
-                
+
             except Exception as e:
                 self.logger.error(f"❌ Error collecting {asset}: {str(e)}")
                 continue
-        
+
         return collected
         
     async def collect_asset(self, asset_name: str) -> List[CandleData]:
         """
         Collect data for a specific asset - Added to support microservices
-        
+
         Args:
             asset_name: Name of the asset to collect
-            
+
         Returns:
             List[CandleData]: List of collected candles as CandleData objects
         """
         try:
             self.logger.info(f"📊 Collecting data for {asset_name}...")
-            
-            candle = await self.collect_candle_data(asset_name)
-            if candle:
-                # Save to MongoDB if not already saved
-                if not hasattr(candle, '_id') or not candle._id:
-                    candle_id = await self.db.save_candle(candle)
-                    candle._id = candle_id
-                
-                # Return the CandleData object directly
-                return [candle]
+
+            candles = await self.collect_candle_data(asset_name)
+            if candles:
+                # Save all candles to MongoDB (atomic upsert handles duplicates)
+                for candle in candles:
+                    if not hasattr(candle, '_id') or not candle._id:
+                        candle_id = await self.db.save_candle(candle)
+                        candle._id = candle_id
+                return candles
             else:
                 self.logger.warning(f"⚠️ No candle data returned for {asset_name}")
                 return []
-                
+
         except Exception as e:
             self.logger.error(f"❌ Error collecting data for {asset_name}: {str(e)}")
             return []

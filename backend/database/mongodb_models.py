@@ -259,37 +259,27 @@ class MongoDBManager:
     
     async def save_candle(self, candle: CandleData) -> str:
         """
-        Save candle data to MongoDB
-        
+        Save candle data to MongoDB using atomic upsert
+
         Args:
             candle: CandleData object
-            
+
         Returns:
-            ID of the inserted document
+            ID of the upserted document
         """
         if not self.is_connected:
             await self.connect()
-        
+
         # Convert to dict
         candle_dict = candle.to_dict()
-        
-        # Check for existing candle with same trading_pair and timestamp
-        existing = await self.db.candles.find_one({
-            "trading_pair": candle.trading_pair,
-            "timestamp": candle.timestamp
-        })
-        
-        if existing:
-            # Update existing candle
-            result = await self.db.candles.update_one(
-                {"_id": existing["_id"]},
-                {"$set": candle_dict}
-            )
-            return str(existing["_id"])
-        else:
-            # Insert new candle
-            result = await self.db.candles.insert_one(candle_dict)
-            return str(result.inserted_id)
+
+        # Atomic upsert: insert or update in a single operation (no race condition)
+        result = await self.db.candles.update_one(
+            {"trading_pair": candle.trading_pair, "timestamp": candle.timestamp},
+            {"$set": candle_dict},
+            upsert=True
+        )
+        return str(result.upserted_id or "updated")
     
     async def save_prediction(self, prediction: PredictionData) -> str:
         """

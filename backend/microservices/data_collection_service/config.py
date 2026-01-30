@@ -23,7 +23,7 @@ QUOTEX_EMAIL = os.getenv('QUOTEX_EMAIL', '')
 QUOTEX_PASSWORD = os.getenv('QUOTEX_PASSWORD', '')
 
 # Data Collection Settings - Optimized for USD/BRL(OTC)
-DATA_COLLECTION_INTERVAL = int(os.environ.get("DATA_COLLECTION_INTERVAL", "30"))  # seconds (more frequent collection)
+DATA_COLLECTION_INTERVAL = int(os.environ.get("DATA_COLLECTION_INTERVAL", "65"))  # seconds (collect once per minute candle)
 DEFAULT_TIMEFRAME = int(os.environ.get("DEFAULT_TIMEFRAME", "60"))  # seconds (1 minute)
 HISTORICAL_DATA_DAYS = int(os.environ.get("HISTORICAL_DATA_DAYS", "180"))  # Collect 6 months of historical data on startup
 DATA_QUALITY_CHECKS = True  # Enable data quality checks
