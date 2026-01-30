@@ -237,13 +237,20 @@ async def run_training_worker():
                     )
                 
                 # Update job with result
-                job["status"] = "completed"
                 job["completed_at"] = datetime.now()
                 job["result"] = result
+
+                # Check if trainer returned an error (e.g., insufficient data)
+                if result and result.get("error"):
+                    job["status"] = "failed"
+                    job["error"] = result["error"]
+                    logger.warning(f"⚠️ Training returned error for {job['trading_pair']} ({job_id}): {result['error']}")
+                else:
+                    job["status"] = "completed"
                 
                 # Store model in cloud storage if configured
                 # If specialized helper already saved to cloud (detected via 'model_info'), skip duplicate save
-                if STORAGE_CONFIG.get("type") == "r2" and result and "model" in result and "model_info" not in result:
+                if job["status"] == "completed" and STORAGE_CONFIG.get("type") == "r2" and result and "model" in result and "model_info" not in result:
                     try:
                         # Extract metadata from result
                         import math

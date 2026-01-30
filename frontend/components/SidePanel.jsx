@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   getModelsForPair,
   retrainModel,
@@ -6,6 +6,7 @@ import {
   startPredictionService,
   stopPredictionService,
   getTradingPairs,
+  getTrainingStatus,
 } from '../services/api';
 
 const DEFAULT_PAIRS = [
@@ -14,8 +15,9 @@ const DEFAULT_PAIRS = [
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
-  const now = new Date();
   const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const now = new Date();
   const diffMs = now - d;
   if (diffMs < 0) return 'just now';
   const mins = Math.floor(diffMs / 60000);
@@ -27,6 +29,15 @@ function timeAgo(dateStr) {
   if (days === 1) return 'Yesterday';
   if (days < 30) return `${days}d ago`;
   return d.toLocaleDateString();
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return 'Unknown date';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return 'Unknown date';
+  const age = timeAgo(dateStr);
+  const full = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  return age ? `${age} (${full})` : full;
 }
 
 export default function SidePanel({
@@ -42,8 +53,9 @@ export default function SidePanel({
   const [models, setModels] = useState([]);
   const [isTraining, setIsTraining] = useState(false);
   const [trainMsg, setTrainMsg] = useState(null);
+  const [trainError, setTrainError] = useState(null);
   const [serviceBusy, setServiceBusy] = useState(false);
-  const [trainingAlgo, setTrainingAlgo] = useState(null);
+  const pollRef = useRef(null);
 
   // Fetch trading pairs from API on mount
   useEffect(() => {
@@ -62,6 +74,11 @@ export default function SidePanel({
       }
     };
     fetchPairs();
+  }, []);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
   // Load models when pair changes
@@ -91,7 +108,7 @@ export default function SidePanel({
           name: m.model_name || m.model_id,
           algorithm: inferAlgorithm(m),
           accuracy: m.accuracy,
-          created_at: m.created_at || m.saved_at,
+          created_at: m.created_at || m.saved_at || m.training_date,
           location: 'local',
         })
       );
@@ -101,7 +118,7 @@ export default function SidePanel({
           name: m.model_name || m.model_id,
           algorithm: inferAlgorithm(m),
           accuracy: m.accuracy,
-          created_at: m.created_at || m.saved_at,
+          created_at: m.created_at || m.saved_at || m.training_date,
           location: 'cloud',
         })
       );
@@ -116,20 +133,78 @@ export default function SidePanel({
     }
   };
 
+  const pollJobStatus = (jobId) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    let attempts = 0;
+    pollRef.current = setInterval(async () => {
+      attempts++;
+      try {
+        const job = await getTrainingStatus(jobId);
+        if (job.status === 'completed') {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          setIsTraining(false);
+          setTrainMsg('Training completed successfully!');
+          setTrainError(null);
+          refreshModels();
+          setTimeout(() => setTrainMsg(null), 5000);
+        } else if (job.status === 'failed') {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          setIsTraining(false);
+          setTrainMsg(null);
+          const errMsg = job.error || 'Training failed';
+          // Make common errors more user-friendly
+          if (errMsg.toLowerCase().includes('insufficient data')) {
+            setTrainError('Not enough candle data to train. Collect more data and try again.');
+          } else if (errMsg.toLowerCase().includes('no training data')) {
+            setTrainError('No candle data available for this pair. Start data collection first.');
+          } else {
+            setTrainError(errMsg);
+          }
+        }
+        // Stop polling after 5 minutes
+        if (attempts > 60) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          setIsTraining(false);
+          setTrainMsg(null);
+          setTrainError('Training timed out. Check server logs.');
+        }
+      } catch (e) {
+        // Job might not be found yet, keep polling
+        if (attempts > 60) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          setIsTraining(false);
+          setTrainMsg(null);
+        }
+      }
+    }, 5000);
+  };
+
   const handleTrain = async (modelType = 'xgboost') => {
     try {
       setIsTraining(true);
-      setTrainingAlgo(modelType);
+      setTrainError(null);
       setTrainMsg(`Submitting ${modelType} training job...`);
       const res = await retrainModel(selectedPair, modelType);
-      setTrainMsg(`Training started (${modelType})${res?.job_id ? ' · Job: ' + res.job_id : ''}`);
-      setTimeout(refreshModels, 8000);
+      const jobId = res?.job_id;
+      setTrainMsg(`Training ${modelType}...${jobId ? ' (Job: ' + jobId + ')' : ''}`);
+      if (jobId) {
+        pollJobStatus(jobId);
+      } else {
+        // No job ID — fallback to delayed refresh
+        setTimeout(() => {
+          refreshModels();
+          setIsTraining(false);
+          setTrainMsg(null);
+        }, 8000);
+      }
     } catch (e) {
-      setTrainMsg(`Training failed (${modelType}): ${e.message}`);
-    } finally {
-      setTimeout(() => setTrainMsg(null), 6000);
+      setTrainError(`Training failed: ${e.message}`);
+      setTrainMsg(null);
       setIsTraining(false);
-      setTrainingAlgo(null);
     }
   };
 
@@ -193,24 +268,29 @@ export default function SidePanel({
             onClick={() => handleTrain('xgboost')}
             disabled={isTraining || serviceBusy}
           >
-            {isTraining && trainingAlgo === 'xgboost' ? 'Training...' : 'Train XGBoost'}
+            {isTraining ? 'Training...' : 'Train XGBoost'}
           </button>
           <button
             className="sp-button"
             onClick={() => handleTrain('lightgbm')}
             disabled={isTraining || serviceBusy}
           >
-            {isTraining && trainingAlgo === 'lightgbm' ? 'Training...' : 'Train LightGBM'}
+            {isTraining ? 'Training...' : 'Train LightGBM'}
           </button>
           <button
             className="sp-button"
             onClick={() => handleTrain('random_forest')}
             disabled={isTraining || serviceBusy}
           >
-            {isTraining && trainingAlgo === 'random_forest' ? 'Training...' : 'Train Random Forest'}
+            {isTraining ? 'Training...' : 'Train Random Forest'}
           </button>
         </div>
         {trainMsg && <div className="sp-hint">{trainMsg}</div>}
+        {trainError && (
+          <div className="sp-hint" style={{ color: '#ff6b6b', fontWeight: 500 }}>
+            {trainError}
+          </div>
+        )}
       </div>
 
       {/* Step 3: Select Model */}
@@ -236,14 +316,13 @@ export default function SidePanel({
           })}
         </select>
         {selectedModel && (
-          <div className="sp-hint" style={{ marginTop: 6, lineHeight: 1.4 }}>
+          <div className="sp-hint" style={{ marginTop: 6, lineHeight: 1.5 }}>
             {selectedModel.accuracy != null && (
               <span>Accuracy: <strong>{(selectedModel.accuracy > 1 ? selectedModel.accuracy : selectedModel.accuracy * 100).toFixed(1)}%</strong> · </span>
             )}
-            <span>{selectedModel.location === 'cloud' ? '☁ Cloud' : '💻 Local'}</span>
-            {selectedModel.created_at && (
-              <span> · {timeAgo(selectedModel.created_at)}</span>
-            )}
+            <span>{selectedModel.location === 'cloud' ? 'Cloud' : 'Local'}</span>
+            <br />
+            <span style={{ opacity: 0.8 }}>{formatDate(selectedModel.created_at)}</span>
           </div>
         )}
         <button className="sp-button ghost" onClick={refreshModels} disabled={loadingModels}>
