@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY microservices/ml_training_service /app/microservices/ml_training_service/
 COPY ml_models /app/ml_models/
 COPY database /app/database/
+COPY shared /app/shared/
 COPY config.py /app/
 
 # Create necessary directories

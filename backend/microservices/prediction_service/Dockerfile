@@ -29,6 +29,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY microservices/prediction_service /app/microservices/prediction_service/
 COPY database /app/database/
 COPY ml_models /app/ml_models/
+COPY shared /app/shared/
 COPY config.py /app/
 
 # Create necessary directories
