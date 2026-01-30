@@ -537,7 +537,7 @@ const getWsBase = ()=>{
         const stored = localStorage.getItem('ws_base_url');
         if (stored) return stored;
     }
-    return ("TURBOPACK compile-time value", "wss://api-gateway-production-bc4c.up.railway.app") || '';
+    return ("TURBOPACK compile-time value", "wss://api-gateway-production-6d82.up.railway.app") || '';
 };
 const setApiBaseUrl = ()=>{};
 const setWsBaseUrl = (url)=>{

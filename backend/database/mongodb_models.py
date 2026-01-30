@@ -364,8 +364,30 @@ class MongoDBManager:
             candle["_id"] = str(candle["_id"])
         
         return candles
-    
-    async def get_predictions(self, 
+
+    async def get_latest_candles(self, trading_pair: str, limit: int = 50) -> List:
+        """Get latest candles as CandleData objects (sorted newest first)"""
+        raw = await self.get_candles(trading_pair=trading_pair, limit=limit)
+        result = []
+        for c in raw:
+            try:
+                result.append(CandleData(
+                    trading_pair=c.get("trading_pair", trading_pair),
+                    timestamp=c.get("timestamp", datetime.now()),
+                    open_price=c.get("open_price", 0),
+                    close_price=c.get("close_price", 0),
+                    high_price=c.get("high_price", 0),
+                    low_price=c.get("low_price", 0),
+                    volume=c.get("volume", 0),
+                    is_closed=c.get("is_closed", True),
+                    is_validated=c.get("is_validated", False),
+                    source=c.get("source", "pyquotex"),
+                ))
+            except Exception:
+                pass
+        return result
+
+    async def get_predictions(self,
                             trading_pair: str, 
                             limit: int = 100, 
                             model_type: str = None,

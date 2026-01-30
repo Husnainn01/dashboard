@@ -71,7 +71,7 @@ const getApiBase = ()=>API_BASE;
 const getWsBase = ()=>{
     if ("TURBOPACK compile-time falsy", 0) //TURBOPACK unreachable
     ;
-    return ("TURBOPACK compile-time value", "wss://api-gateway-production-bc4c.up.railway.app") || '';
+    return ("TURBOPACK compile-time value", "wss://api-gateway-production-6d82.up.railway.app") || '';
 };
 const setApiBaseUrl = ()=>{};
 const setWsBaseUrl = (url)=>{

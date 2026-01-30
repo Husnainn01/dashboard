@@ -1,44 +1,48 @@
-[00:00:01.911] Server  LOG     ✓ Ready in 1766ms
-[00:00:05.081] Server  LOG     🔌 API proxy path: "/api"
-[00:00:05.081] Server  LOG     📡 WebSocket base: "wss://api-gateway-production-bc4c.up.railway.app"
-[00:00:05.960] Browser LOG     🔌 API proxy path: /api
-[00:00:05.960] Browser LOG     📡 WebSocket base: wss://api-gateway-production-bc4c.up.railway.app
-[00:00:06.285] Server  ERROR   (node:34820) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+[00:00:00.546] Server  LOG     ✓ Ready in 382ms
+[00:00:02.174] Server  LOG     🔌 API proxy path: "/api"
+[00:00:02.174] Server  LOG     📡 WebSocket base: "wss://api-gateway-production-6d82.up.railway.app"
+[00:00:02.981] Browser LOG     🔌 API proxy path: /api
+[00:00:02.982] Browser LOG     📡 WebSocket base: wss://api-gateway-production-6d82.up.railway.app
+[00:00:03.263] Server  ERROR   (node:39134) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
 (Use `node --trace-deprecation ...` to show where the warning was created)
-[00:00:06.372] Browser LOG     🔌 API Request: GET /api/health
-[00:00:06.372] Browser LOG     🔌 API Request: GET /api/health
-[00:00:08.451] Browser ERROR   ❌ API Error (502): Application failed to respond
-[00:00:08.451] Browser ERROR   ❌ API Request failed: {}
-[00:00:08.752] Browser ERROR   ❌ API Error (502): Application failed to respond
-[00:00:08.752] Browser ERROR   ❌ API Request failed: {}
-[00:00:12.378] Browser LOG     🔌 API Request: GET /api/health
-[00:00:12.845] Browser ERROR   ❌ API Error (502): Application failed to respond
-[00:00:12.845] Browser ERROR   ❌ API Request failed: {}
-[00:00:18.379] Browser LOG     🔌 API Request: GET /api/health
-[00:00:19.798] Browser ERROR   ❌ API Error (502): Application failed to respond
-[00:00:19.798] Browser ERROR   ❌ API Request failed: {}
-[00:00:24.388] Browser LOG     🔌 API Request: GET /api/health
-[00:00:24.838] Browser ERROR   ❌ API Error (502): Application failed to respond
-[00:00:24.838] Browser ERROR   ❌ API Request failed: {}
-[00:00:30.387] Browser LOG     🔌 API Request: GET /api/health
-[00:00:30.950] Browser ERROR   ❌ API Error (502): Application failed to respond
-[00:00:30.950] Browser ERROR   ❌ API Request failed: {}
-[00:00:36.397] Browser LOG     🔌 API Request: GET /api/health
-[00:00:37.732] Browser ERROR   ❌ API Error (502): Application failed to respond
-[00:00:37.732] Browser ERROR   ❌ API Request failed: {}
-[00:00:42.399] Browser LOG     🔌 API Request: GET /api/health
-[00:00:43.761] Browser ERROR   ❌ API Error (502): Application failed to respond
-[00:00:43.761] Browser ERROR   ❌ API Request failed: {}
-[00:00:48.401] Browser LOG     🔌 API Request: GET /api/health
-[00:00:49.851] Browser ERROR   ❌ API Error (502): Application failed to respond
-[00:00:49.851] Browser ERROR   ❌ API Request failed: {}
-[00:00:54.406] Browser LOG     🔌 API Request: GET /api/health
-[00:00:54.718] Browser ERROR   ❌ API Error (502): Application failed to respond
-[00:00:54.718] Browser ERROR   ❌ API Request failed: {}
-[00:01:00.407] Browser LOG     🔌 API Request: GET /api/health
-[00:01:00.732] Browser ERROR   ❌ API Error (502): Application failed to respond
-[00:01:00.732] Browser ERROR   ❌ API Request failed: {}
-[00:01:06.419] Browser LOG     🔌 API Request: GET /api/health
-[00:01:06.742] Browser ERROR   ❌ API Error (502): Application failed to respond
-[00:01:06.742] Browser ERROR   ❌ API Request failed: {}
-[00:08:14.262] Server  LOG       Reload env: .env
+[00:00:03.351] Browser LOG     🔌 API Request: GET /api/health
+[00:00:03.351] Browser LOG     🔌 API Request: GET /api/health
+[00:00:03.711] Browser LOG     🔌 API proxy path: /api
+[00:00:03.711] Browser LOG     📡 WebSocket base: wss://api-gateway-production-6d82.up.railway.app
+[00:00:05.764] Browser LOG     🔌 API Request: GET /api/health
+[00:00:05.764] Browser LOG     🔌 API Request: GET /api/trading-pairs
+[00:00:05.764] Browser LOG     🔍 Fetching models for pair: USD/BRL(OTC)
+[00:00:05.764] Browser LOG     🔌 API Request: GET /api/ml/models/USD%2FBRL(OTC)
+[00:00:05.764] Browser LOG     🔌 API Request: GET /api/data/candles/USD%2FBRL(OTC)?limit=100
+[00:00:05.764] Browser LOG     🔌 API Request: GET /api/api/predictions/accuracy
+[00:00:05.764] Browser LOG     🔌 API Request: GET /api/health
+[00:00:05.764] Browser LOG     🔌 API Request: POST /api/predictions/stop
+[00:00:05.764] Browser LOG     🔌 API Request: GET /api/health
+[00:00:05.764] Browser LOG     🔌 API Request: GET /api/trading-pairs
+[00:00:05.764] Browser LOG     🔍 Fetching models for pair: USD/BRL(OTC)
+[00:00:05.764] Browser LOG     🔌 API Request: GET /api/ml/models/USD%2FBRL(OTC)
+[00:00:05.764] Browser LOG     🔌 API Request: GET /api/data/candles/USD%2FBRL(OTC)?limit=100
+[00:00:05.764] Browser LOG     🔌 API Request: GET /api/api/predictions/accuracy
+[00:00:05.764] Browser LOG     🔌 API Request: GET /api/health
+[00:00:05.764] Browser LOG     🔌 API Request: POST /api/predictions/stop
+[00:00:06.105] Browser ERROR   ❌ API Error (500): {"detail":"Error retrieving candles: 'MongoDBManager' object has no attribute 'get_latest_candles'"}
+[00:00:06.105] Browser ERROR   ❌ API Request failed: {}
+[00:00:06.105] Browser ERROR   Failed to load candles: {}
+[00:00:06.990] Browser LOG     ✅ Models fetched successfully: {"cloud_count":0,"cloud_models":[],"trading_pair":"USDBRL"}
+[00:00:07.422] Browser ERROR   ❌ API Error (500): {"detail":"Error retrieving candles: 'MongoDBManager' object has no attribute 'get_latest_candles'"}
+[00:00:07.422] Browser ERROR   ❌ API Request failed: {}
+[00:00:07.422] Browser ERROR   Failed to load candles: {}
+[00:00:08.087] Browser LOG     ✅ Models fetched successfully: {"cloud_count":0,"cloud_models":[],"trading_pair":"USDBRL"}
+[00:00:20.771] Browser LOG     🔌 API Request: GET /api/health
+[00:00:35.774] Browser LOG     🔌 API Request: GET /api/health
+[00:00:35.774] Browser LOG     🔌 API Request: GET /api/api/predictions/accuracy
+[00:00:50.764] Browser LOG     🔌 API Request: GET /api/health
+[00:01:05.773] Browser LOG     🔌 API Request: GET /api/health
+[00:01:05.773] Browser LOG     🔌 API Request: GET /api/api/predictions/accuracy
+[00:01:20.765] Browser LOG     🔌 API Request: GET /api/health
+[00:01:35.770] Browser LOG     🔌 API Request: GET /api/health
+[00:01:35.770] Browser LOG     🔌 API Request: GET /api/api/predictions/accuracy
+[00:01:50.764] Browser LOG     🔌 API Request: GET /api/health
+[00:02:05.767] Browser LOG     🔌 API Request: GET /api/health
+[00:02:05.767] Browser LOG     🔌 API Request: GET /api/api/predictions/accuracy
+[00:02:20.762] Browser LOG     🔌 API Request: GET /api/health
