@@ -12,6 +12,23 @@ const DEFAULT_PAIRS = [
   { value: 'USD/BRL(OTC)', label: 'USD/BRL OTC', flag: '' },
 ];
 
+function timeAgo(dateStr) {
+  if (!dateStr) return '';
+  const now = new Date();
+  const d = new Date(dateStr);
+  const diffMs = now - d;
+  if (diffMs < 0) return 'just now';
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days === 1) return 'Yesterday';
+  if (days < 30) return `${days}d ago`;
+  return d.toLocaleDateString();
+}
+
 export default function SidePanel({
   selectedPair,
   onPairChange,
@@ -73,6 +90,7 @@ export default function SidePanel({
           id: m.model_id || m.model_name,
           name: m.model_name || m.model_id,
           algorithm: inferAlgorithm(m),
+          accuracy: m.accuracy,
           created_at: m.created_at || m.saved_at,
           location: 'local',
         })
@@ -82,6 +100,7 @@ export default function SidePanel({
           id: m.model_id || m.model_name,
           name: m.model_name || m.model_id,
           algorithm: inferAlgorithm(m),
+          accuracy: m.accuracy,
           created_at: m.created_at || m.saved_at,
           location: 'cloud',
         })
@@ -204,12 +223,29 @@ export default function SidePanel({
           disabled={loadingModels || isTraining}
         >
           {models.length === 0 && <option value="">No models</option>}
-          {models.map((m) => (
-            <option key={m.id} value={m.name}>
-              {m.algorithm.toUpperCase()} · {m.name}
-            </option>
-          ))}
+          {models.map((m) => {
+            const acc = m.accuracy != null
+              ? `${(m.accuracy > 1 ? m.accuracy : m.accuracy * 100).toFixed(1)}%`
+              : '';
+            const age = timeAgo(m.created_at);
+            return (
+              <option key={m.id} value={m.name}>
+                {m.algorithm.toUpperCase()}{acc ? ` ${acc}` : ''}{age ? ` · ${age}` : ''} · {m.name}
+              </option>
+            );
+          })}
         </select>
+        {selectedModel && (
+          <div className="sp-hint" style={{ marginTop: 6, lineHeight: 1.4 }}>
+            {selectedModel.accuracy != null && (
+              <span>Accuracy: <strong>{(selectedModel.accuracy > 1 ? selectedModel.accuracy : selectedModel.accuracy * 100).toFixed(1)}%</strong> · </span>
+            )}
+            <span>{selectedModel.location === 'cloud' ? '☁ Cloud' : '💻 Local'}</span>
+            {selectedModel.created_at && (
+              <span> · {timeAgo(selectedModel.created_at)}</span>
+            )}
+          </div>
+        )}
         <button className="sp-button ghost" onClick={refreshModels} disabled={loadingModels}>
           {loadingModels ? 'Loading...' : 'Refresh models'}
         </button>

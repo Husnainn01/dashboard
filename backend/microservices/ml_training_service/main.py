@@ -246,13 +246,23 @@ async def run_training_worker():
                 if STORAGE_CONFIG.get("type") == "r2" and result and "model" in result and "model_info" not in result:
                     try:
                         # Extract metadata from result
+                        import math
+                        def _safe_float(v):
+                            if v is None:
+                                return None
+                            try:
+                                f = float(v)
+                                return None if (math.isnan(f) or math.isinf(f)) else f
+                            except (TypeError, ValueError):
+                                return None
+
                         metadata = {
                             "trading_pair": job["trading_pair"],
                             "algorithm": job["model_type"],
-                            "accuracy": result.get("metrics", {}).get("accuracy"),
-                            "precision": result.get("metrics", {}).get("precision"),
-                            "recall": result.get("metrics", {}).get("recall"),
-                            "f1_score": result.get("metrics", {}).get("f1_score"),
+                            "accuracy": _safe_float(result.get("metrics", {}).get("accuracy")),
+                            "precision": _safe_float(result.get("metrics", {}).get("precision")),
+                            "recall": _safe_float(result.get("metrics", {}).get("recall")),
+                            "f1_score": _safe_float(result.get("metrics", {}).get("f1_score")),
                             "training_date": datetime.now().isoformat(),
                             "samples_count": result.get("samples_count"),
                             "features_count": result.get("features_count")
@@ -446,12 +456,25 @@ async def get_models_for_pair(trading_pair: str = PathParam(...)):
     else:
         logger.warning("⚠️ model_storage_manager not initialized, skipping cloud models")
     
+    # Sanitize NaN/Inf floats that aren't JSON-serializable
+    import math
+    def _sanitize(obj):
+        if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+            return None
+        if isinstance(obj, dict):
+            return {k: _sanitize(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_sanitize(v) for v in obj]
+        return obj
+
+    cloud_models = _sanitize(cloud_models)
+
     response = {
         "trading_pair": canonical_pair,
         "cloud_models": cloud_models,
         "cloud_count": len(cloud_models)
     }
-    
+
     logger.info(f"✅ Returning response with {len(cloud_models)} cloud models")
     return response
 
