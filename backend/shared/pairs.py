@@ -33,6 +33,11 @@ def normalize_internal(raw: Optional[str]) -> Optional[str]:
     if not raw:
         return raw
     base = _strip_common(raw)
+    # Sort 6-letter forex pair alphabetically so USDBRL == BRLUSD → BRLUSD
+    if len(base) == 6:
+        a, b = base[:3], base[3:]
+        if a > b:
+            base = b + a
     return base
 
 def to_api_asset(raw: Optional[str]) -> Optional[str]:
