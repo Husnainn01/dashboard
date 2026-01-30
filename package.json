@@ -31,5 +31,8 @@
     "prediction",
     "monorepo",
     "workspace"
-  ]
+  ],
+  "dependencies": {
+    "next": "^14.2.35"
+  }
 }

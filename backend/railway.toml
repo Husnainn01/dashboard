@@ -1,0 +1,20 @@
+# Railway Configuration
+# Root directory: backend/
+#
+# This project has 4 microservices. Create 4 Railway services,
+# ALL with root directory = "backend/".
+# Set each service's Dockerfile path in Railway dashboard:
+#
+#   api_gateway          → microservices/api_gateway/Dockerfile
+#   data_collection      → microservices/data_collection_service/Dockerfile
+#   ml_training          → microservices/ml_training_service/Dockerfile
+#   prediction           → microservices/prediction_service/Dockerfile
+
+[build]
+builder = "DOCKERFILE"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5
