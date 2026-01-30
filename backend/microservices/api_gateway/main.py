@@ -464,6 +464,14 @@ async def get_models_for_pair(trading_pair: str):
         f"/models/{canonical}"
     )
 
+@app.get("/ml/train/status/{job_id}")
+async def get_training_status(job_id: str):
+    """Get status of a training job"""
+    return await forward_request(
+        "ml_training",
+        f"/train/status/{job_id}"
+    )
+
 @app.post("/ml/train")
 async def train_model(request: Request):
     """Train a new model for a trading pair"""

@@ -294,7 +294,10 @@ async def run_training_worker():
                         logger.error(f"❌ Error saving model to cloud storage: {str(e)}")
                         job["result"]["storage_error"] = str(e)
                 
-                logger.info(f"✅ Training completed for {job['trading_pair']} ({job_id})")
+                if job["status"] == "failed":
+                    logger.info(f"❌ Training failed for {job['trading_pair']} ({job_id}): {job.get('error')}")
+                else:
+                    logger.info(f"✅ Training completed for {job['trading_pair']} ({job_id})")
                 
             except Exception as e:
                 logger.error(f"❌ Training error for {job['trading_pair']} ({job_id}): {str(e)}")
