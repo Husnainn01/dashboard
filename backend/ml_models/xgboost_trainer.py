@@ -73,7 +73,7 @@ class XGBoostTrainer:
             'objective': 'binary:logistic',
             'eval_metric': 'logloss',
             'random_state': 42,
-            'use_label_encoder': False,    # Avoid warning in newer XGBoost versions
+            'early_stopping_rounds': 20,   # Stop if no improvement for 20 rounds
             'n_jobs': -1                   # Use all cores
         }
         
@@ -154,8 +154,6 @@ class XGBoostTrainer:
             model.fit(
                 X_train_scaled, y_train,
                 eval_set=eval_set,
-                eval_metric='logloss',
-                early_stopping_rounds=20,
                 verbose=False
             )
             
