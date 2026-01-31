@@ -190,10 +190,11 @@ class ModelTrainer:
                     features_df.columns.tolist(), internal_pair
                 )
                 
-                # Save model and scaler
+                # Save model and scaler (include feature names for prediction alignment)
                 await self._save_model(
-                    model_result['model'], scaler, algorithm, 
-                    internal_pair, model_result['metrics']
+                    model_result['model'], scaler, algorithm,
+                    internal_pair, model_result['metrics'],
+                    feature_names=features_df.columns.tolist()
                 )
                 
                 results[algorithm] = model_result
@@ -353,7 +354,8 @@ class ModelTrainer:
         return importance_dict
     
     async def _save_model(self, model: Any, scaler: StandardScaler, algorithm: str,
-                         trading_pair: str, metrics: Dict[str, float]) -> str:
+                         trading_pair: str, metrics: Dict[str, float],
+                         feature_names: List[str] = None) -> str:
         """Save trained model and metadata"""
         
         # Normalize to internal canonical key for naming/metadata
@@ -368,13 +370,23 @@ class ModelTrainer:
             'scaler': scaler
         }
         
-        # Prepare metadata
+        # Prepare metadata (include feature names for alignment at prediction time)
+        # Prefer explicitly passed feature_names (from training DataFrame columns)
+        saved_feature_names = feature_names or []
+        if not saved_feature_names:
+            if hasattr(model, 'feature_names_in_'):
+                saved_feature_names = list(model.feature_names_in_)
+            elif hasattr(model, 'get_booster') and hasattr(model.get_booster(), 'feature_names'):
+                saved_feature_names = list(model.get_booster().feature_names)
+
         metadata = {
             'algorithm': algorithm,
             'trading_pair': internal_pair,
             'trained_at': datetime.utcnow().isoformat(),
             'metrics': metrics,
-            'version': '1.0.0'
+            'version': '1.0.0',
+            'feature_names': saved_feature_names,
+            'n_features': model.n_features_in_ if hasattr(model, 'n_features_in_') else len(saved_feature_names)
         }
         
         # Save to cloud storage (R2) only

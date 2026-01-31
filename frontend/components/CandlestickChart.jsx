@@ -8,6 +8,7 @@ export default function CandlestickChart({ tradingPair, prediction }) {
   const seriesRef = useRef(null);
   const wsRef = useRef(null);
   const markersRef = useRef([]);
+  const lastCandleTimeRef = useRef(null);
 
   // Initialize chart
   useEffect(() => {
@@ -91,6 +92,7 @@ export default function CandlestickChart({ tradingPair, prediction }) {
 
         if (candles.length > 0) {
           seriesRef.current.setData(candles);
+          lastCandleTimeRef.current = candles[candles.length - 1].time;
           chartRef.current?.timeScale().fitContent();
         }
       } catch (err) {
@@ -126,6 +128,7 @@ export default function CandlestickChart({ tradingPair, prediction }) {
               close: msg.close,
             };
             seriesRef.current?.update(bar);
+            lastCandleTimeRef.current = bar.time;
           }
         } catch (e) {
           // ignore parse errors
@@ -153,9 +156,15 @@ export default function CandlestickChart({ tradingPair, prediction }) {
     if (!seriesRef.current || !prediction) return;
 
     try {
-      const ts = prediction.timestamp
+      let ts = prediction.timestamp
         ? toUnixSeconds(prediction.timestamp instanceof Date ? prediction.timestamp.toISOString() : prediction.timestamp)
         : Math.floor(Date.now() / 1000);
+
+      // Snap marker to last candle time if prediction time is beyond chart data
+      // (prevents markers from being placed outside the visible range)
+      if (lastCandleTimeRef.current && ts > lastCandleTimeRef.current) {
+        ts = lastCandleTimeRef.current;
+      }
 
       const isUp = (prediction.direction || '').toLowerCase() === 'up';
 

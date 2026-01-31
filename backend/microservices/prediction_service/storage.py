@@ -392,44 +392,35 @@ class ModelStorageService:
                 logger.error(f"❌ Failed to load model from {model_key}: {str(e)}")
                 raise
             
-            # Download scaler if it exists
+            # Use bundled scaler from model dict if available, otherwise try separate file
             scaler = None
-            try:
-                scaler_obj = self.r2_client.get_object(
-                    Bucket=self.bucket_name,
-                    Key=scaler_key
-                )
-                scaler_bytes = scaler_obj['Body'].read()
-                scaler = pickle.loads(scaler_bytes)
-                logger.info(f"✅ Scaler loaded from R2 storage: {model_id}")
-            except Exception as e:
-                logger.warning(f"⚠️ No scaler found for model {model_id}: {str(e)}")
-                # Create a more robust default StandardScaler
-                from sklearn.preprocessing import StandardScaler
-                import numpy as np
-                logger.info(f"🔧 Creating robust default StandardScaler for model {model_id}")
-                
-                # Default feature count - will be adjusted in prediction service
-                default_feature_count = 350  # Set high enough for most feature sets
-                
-                scaler = StandardScaler()
-                
-                # Initialize with identity transformation for multiple features
-                scaler.mean_ = np.zeros(default_feature_count)
-                scaler.scale_ = np.ones(default_feature_count)
-                scaler.var_ = np.ones(default_feature_count)
-                scaler.n_features_in_ = default_feature_count
-                scaler.n_samples_seen_ = 100  # Required attribute for sklearn 0.24+
-                
-                # Log detailed information for debugging
-                logger.info(f"🔧 Initialized default scaler with {default_feature_count} features")
-                logger.info(f"🔧 Scaler attributes: n_features_in_={scaler.n_features_in_}, n_samples_seen_={scaler.n_samples_seen_}")
-                logger.info(f"🔧 Scaler mean shape: {scaler.mean_.shape}, scale shape: {scaler.scale_.shape}")
-            
-            # Prefer bundled scaler from the model dict if available
             if bundled_scaler is not None:
                 scaler = bundled_scaler
                 logger.info(f"✅ Using scaler bundled with model")
+            else:
+                try:
+                    scaler_obj = self.r2_client.get_object(
+                        Bucket=self.bucket_name,
+                        Key=scaler_key
+                    )
+                    scaler_bytes = scaler_obj['Body'].read()
+                    scaler = pickle.loads(scaler_bytes)
+                    logger.info(f"✅ Scaler loaded from R2 storage: {model_id}")
+                except Exception as e:
+                    logger.warning(f"⚠️ No scaler found for model {model_id}: {str(e)}")
+                    # Create identity StandardScaler as last resort
+                    from sklearn.preprocessing import StandardScaler
+                    import numpy as np
+
+                    n_features = model.n_features_in_ if hasattr(model, 'n_features_in_') else 360
+                    logger.info(f"🔧 Creating identity StandardScaler with {n_features} features for model {model_id}")
+
+                    scaler = StandardScaler()
+                    scaler.mean_ = np.zeros(n_features)
+                    scaler.scale_ = np.ones(n_features)
+                    scaler.var_ = np.ones(n_features)
+                    scaler.n_features_in_ = n_features
+                    scaler.n_samples_seen_ = 100
 
             logger.info(f"✅ Model loaded from R2 storage: {model_id}")
             return model, scaler, metadata

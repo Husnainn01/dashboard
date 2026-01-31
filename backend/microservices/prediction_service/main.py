@@ -241,14 +241,6 @@ async def prepare_features_for_prediction(trading_pair: str, lookback_candles: i
         # Get the latest feature row for prediction
         latest_features = feature_df.iloc[-1:].drop(columns=['timestamp'], errors='ignore')
         
-        # Remove volume-related features that might not have been present during training
-        # These are the features causing the mismatch error
-        volume_features = ['price_volume_correlation', 'volume_ratio', 'volume_sma_10']
-        for feature in volume_features:
-            if feature in latest_features.columns:
-                logger.info(f"🔧 Removing feature not present during training: {feature}")
-                latest_features = latest_features.drop(columns=[feature], errors='ignore')
-        
         # Log information about the freshness of the data
         if candles and len(candles) > 0:
             latest_candle_time = candles[-1].get('timestamp')
@@ -276,7 +268,7 @@ async def prepare_features_for_prediction(trading_pair: str, lookback_candles: i
         end_time = time.time()
         logger.info(f"⏱️ Feature extraction took {(end_time - start_time) * 1000:.2f}ms for {trading_pair}")
         
-        return latest_features, len(candles)
+        return latest_features, candles
     except Exception as e:
         logger.error(f"❌ Error preparing features: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error preparing features: {str(e)}")
@@ -725,13 +717,18 @@ async def make_prediction(request: PredictionRequest):
         try:
             # Get feature names from the model if available
             model_features = None
-            
+
             # First, try to get feature names from the model
             if hasattr(model, 'feature_names_in_'):
                 model_features = model.feature_names_in_
             elif hasattr(model, 'get_booster') and hasattr(model.get_booster(), 'feature_names'):
                 model_features = model.get_booster().feature_names
-            
+
+            # Fall back to feature names saved in model metadata
+            if model_features is None and isinstance(metadata, dict) and metadata.get('feature_names'):
+                model_features = metadata['feature_names']
+                logger.info(f"🔍 Using feature names from model metadata ({len(model_features)} features)")
+
             if model_features is not None:
                 logger.info(f"🔍 Model expects {len(model_features)} features")
                 

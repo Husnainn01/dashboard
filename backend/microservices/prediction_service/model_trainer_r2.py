@@ -198,14 +198,23 @@ class ModelTrainerR2(BaseModelTrainer):
             return await super()._save_model(model, scaler, algorithm, trading_pair, metrics)
         
         try:
+            # Bundle model + scaler together and prepare metadata
+            model_data = {
+                'model': model,
+                'scaler': scaler
+            }
+            metadata = {
+                'algorithm': algorithm,
+                'trading_pair': trading_pair,
+                'trained_at': datetime.utcnow().isoformat(),
+                'metrics': metrics,
+                'version': '1.0.0',
+                'is_optimized_for_usd_brl': True
+            }
             # Save model to R2
             model_id = await self.model_storage_manager.save_model(
-                model=model,
-                scaler=scaler,
-                algorithm=algorithm,
-                trading_pair=trading_pair,
-                metrics=metrics,
-                is_optimized_for_usd_brl=True  # Mark as optimized for USD/BRL
+                model_data=model_data,
+                metadata=metadata
             )
             
             logger.info(f"💾 Model saved to R2: {model_id}")
