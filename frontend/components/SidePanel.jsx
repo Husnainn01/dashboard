@@ -8,15 +8,27 @@ import {
   getTradingPairs,
   getTrainingStatus,
 } from '../services/api';
+import TrainingModal from './TrainingModal';
 
 const DEFAULT_PAIRS = [
   { value: 'USD/BRL(OTC)', label: 'USD/BRL OTC', flag: '' },
 ];
 
+// Parse date string, treating timezone-naive strings (from Python's datetime.now().isoformat()) as UTC
+function parseDate(dateStr) {
+  if (!dateStr) return null;
+  let s = String(dateStr);
+  // If the string has no timezone indicator (no Z, no +/- offset after time), treat as UTC
+  if (s.includes('T') && !s.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(s)) {
+    s += 'Z';
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 function timeAgo(dateStr) {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return '';
+  const d = parseDate(dateStr);
+  if (!d) return '';
   const now = new Date();
   const diffMs = now - d;
   if (diffMs < 0) return 'just now';
@@ -32,9 +44,8 @@ function timeAgo(dateStr) {
 }
 
 function formatDate(dateStr) {
-  if (!dateStr) return 'Unknown date';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return 'Unknown date';
+  const d = parseDate(dateStr);
+  if (!d) return 'Unknown date';
   const age = timeAgo(dateStr);
   const full = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   return age ? `${age} (${full})` : full;
@@ -57,6 +68,17 @@ export default function SidePanel({
   const [serviceBusy, setServiceBusy] = useState(false);
   const pollRef = useRef(null);
 
+  // Training modal state
+  const [showTrainingModal, setShowTrainingModal] = useState(false);
+  const [trainingJobId, setTrainingJobId] = useState(null);
+  const [trainingStatus, setTrainingStatus] = useState('queued');
+  const [trainingProgress, setTrainingProgress] = useState('Queued');
+  const [trainingProgressPct, setTrainingProgressPct] = useState(0);
+  const [trainingStartedAt, setTrainingStartedAt] = useState(null);
+  const [trainingCompletedAt, setTrainingCompletedAt] = useState(null);
+  const [trainingError, setTrainingError] = useState(null);
+  const [trainingModelType, setTrainingModelType] = useState('xgboost');
+
   // Fetch trading pairs from API on mount
   useEffect(() => {
     const fetchPairs = async () => {
@@ -78,7 +100,7 @@ export default function SidePanel({
 
   // Cleanup polling on unmount
   useEffect(() => {
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    return () => { if (pollRef.current) clearTimeout(pollRef.current); };
   }, []);
 
   // Load models when pair changes
@@ -134,79 +156,135 @@ export default function SidePanel({
   };
 
   const pollJobStatus = (jobId) => {
-    if (pollRef.current) clearInterval(pollRef.current);
+    if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null; }
     let attempts = 0;
-    pollRef.current = setInterval(async () => {
+
+    const doPoll = async () => {
       attempts++;
       try {
         const job = await getTrainingStatus(jobId);
+
+        // Feed progress into modal state
+        if (job.status) setTrainingStatus(job.status);
+        if (job.progress) setTrainingProgress(job.progress);
+        if (job.progress_pct != null) setTrainingProgressPct(job.progress_pct);
+        if (job.started_at) setTrainingStartedAt(job.started_at);
+        if (job.completed_at) setTrainingCompletedAt(job.completed_at);
+
         if (job.status === 'completed') {
-          clearInterval(pollRef.current);
           pollRef.current = null;
           setIsTraining(false);
           setTrainMsg('Training completed successfully!');
           setTrainError(null);
           refreshModels();
           setTimeout(() => setTrainMsg(null), 5000);
+          return; // stop polling
         } else if (job.status === 'failed') {
-          clearInterval(pollRef.current);
           pollRef.current = null;
           setIsTraining(false);
           setTrainMsg(null);
           const errMsg = job.error || 'Training failed';
-          // Make common errors more user-friendly
+          let friendlyErr = errMsg;
           if (errMsg.toLowerCase().includes('insufficient data')) {
-            setTrainError('Not enough candle data to train. Collect more data and try again.');
+            friendlyErr = 'Not enough candle data to train. Collect more data and try again.';
           } else if (errMsg.toLowerCase().includes('no training data')) {
-            setTrainError('No candle data available for this pair. Start data collection first.');
-          } else {
-            setTrainError(errMsg);
+            friendlyErr = 'No candle data available for this pair. Start data collection first.';
           }
+          setTrainError(friendlyErr);
+          setTrainingError(friendlyErr);
+          return; // stop polling
         }
-        // Stop polling after 10 minutes
-        if (attempts > 120) {
-          clearInterval(pollRef.current);
+
+        // Stop polling after 10 minutes (~200 attempts at 3s)
+        if (attempts > 200) {
           pollRef.current = null;
           setIsTraining(false);
           setTrainMsg(null);
           setTrainError('Training timed out. Check server logs.');
+          setTrainingStatus('failed');
+          setTrainingError('Training timed out. Check server logs.');
+          return;
         }
       } catch (e) {
         console.warn(`Poll attempt ${attempts} failed:`, e?.message || e);
-        // Stop after 120 attempts (10 min at 5s intervals)
-        if (attempts > 120) {
-          clearInterval(pollRef.current);
+        if (attempts > 200) {
           pollRef.current = null;
           setIsTraining(false);
           setTrainMsg(null);
           setTrainError('Could not get training status. Check server logs.');
+          setTrainingStatus('failed');
+          setTrainingError('Could not get training status. Check server logs.');
+          return;
         }
       }
-    }, 5000);
+
+      // Schedule next poll
+      pollRef.current = setTimeout(doPoll, 3000);
+    };
+
+    // Fire first poll immediately
+    doPoll();
+  };
+
+  const resetTrainingModal = () => {
+    setShowTrainingModal(false);
+    setTrainingJobId(null);
+    setTrainingStatus('queued');
+    setTrainingProgress('Queued');
+    setTrainingProgressPct(0);
+    setTrainingStartedAt(null);
+    setTrainingCompletedAt(null);
+    setTrainingError(null);
+  };
+
+  const handleTrainingCancel = () => {
+    if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null; }
+    setIsTraining(false);
+    resetTrainingModal();
+  };
+
+  const handleTrainingClose = () => {
+    resetTrainingModal();
+    // Refresh models on close after completion
+    refreshModels();
   };
 
   const handleTrain = async (modelType = 'xgboost') => {
     try {
       setIsTraining(true);
       setTrainError(null);
-      setTrainMsg(`Submitting ${modelType} training job...`);
+      setTrainMsg(null);
+
+      // Open modal immediately
+      setTrainingModelType(modelType);
+      setTrainingStatus('queued');
+      setTrainingProgress('Queued');
+      setTrainingProgressPct(0);
+      setTrainingStartedAt(null);
+      setTrainingCompletedAt(null);
+      setTrainingError(null);
+      setShowTrainingModal(true);
+
       const res = await retrainModel(selectedPair, modelType);
       const jobId = res?.job_id;
-      setTrainMsg(`Training ${modelType}...${jobId ? ' (Job: ' + jobId + ')' : ''}`);
+      setTrainingJobId(jobId);
       if (jobId) {
         pollJobStatus(jobId);
       } else {
-        // No job ID — fallback to delayed refresh
         setTimeout(() => {
           refreshModels();
           setIsTraining(false);
-          setTrainMsg(null);
+          setTrainingStatus('completed');
+          setTrainingProgress('Complete');
+          setTrainingProgressPct(100);
         }, 8000);
       }
     } catch (e) {
       setTrainError(`Training failed: ${e.message}`);
       setTrainMsg(null);
       setIsTraining(false);
+      setTrainingStatus('failed');
+      setTrainingError(e.message);
     }
   };
 
@@ -287,8 +365,8 @@ export default function SidePanel({
             {isTraining ? 'Training...' : 'Train Random Forest'}
           </button>
         </div>
-        {trainMsg && <div className="sp-hint">{trainMsg}</div>}
-        {trainError && (
+        {!showTrainingModal && trainMsg && <div className="sp-hint">{trainMsg}</div>}
+        {!showTrainingModal && trainError && (
           <div className="sp-hint" style={{ color: '#ff6b6b', fontWeight: 500 }}>
             {trainError}
           </div>
@@ -348,6 +426,20 @@ export default function SidePanel({
       </div>
 
       <div className="sp-footer">v1 · {new Date().getFullYear()}</div>
+
+      <TrainingModal
+        isOpen={showTrainingModal}
+        status={trainingStatus}
+        progress={trainingProgress}
+        progressPct={trainingProgressPct}
+        startedAt={trainingStartedAt}
+        completedAt={trainingCompletedAt}
+        error={trainingError}
+        modelType={trainingModelType}
+        tradingPair={selectedPair}
+        onCancel={handleTrainingCancel}
+        onClose={handleTrainingClose}
+      />
     </aside>
   );
 }

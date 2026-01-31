@@ -97,14 +97,21 @@ class XGBoostTrainer:
             
         return xgb.XGBClassifier(**model_params)
     
-    async def train_model(self, trading_pair: str, data_limit: int = 2000) -> Dict:
+    def _update_progress(self, job_status: Optional[Dict], msg: str, pct: int):
+        """Update progress on the job_status dict if provided"""
+        if job_status is not None:
+            job_status["progress"] = msg
+            job_status["progress_pct"] = pct
+
+    async def train_model(self, trading_pair: str, data_limit: int = 2000, job_status: dict = None) -> Dict:
         """
         Train XGBoost model for a specific trading pair
-        
+
         Args:
             trading_pair: Trading pair to train on (e.g., "USD/BRL(OTC)")
             data_limit: Maximum number of candles to use for training
-            
+            job_status: Optional job dict reference for progress updates
+
         Returns:
             Dictionary with model results or None if training failed
         """
@@ -112,24 +119,27 @@ class XGBoostTrainer:
         api_pair = to_api_asset(trading_pair) or trading_pair
         internal_pair = normalize_internal(trading_pair) or trading_pair
         logger.info(f"🧠 Training XGBoost model for {trading_pair} (api={api_pair}, internal={internal_pair})")
-        
+
+        self._update_progress(job_status, "Preparing data...", 10)
+
         # Prepare training data
         logger.info("📊 Preparing training data...")
         features_df, targets_df = await self.feature_engineer.prepare_training_data(
             trading_pair=api_pair, limit=data_limit
         )
-        
+
         if features_df.empty or targets_df.empty:
             logger.error("❌ No training data available")
             return {'error': 'No training data available'}
-        
+
         # Check minimum samples requirement
         if len(features_df) < self.min_samples_for_training:
             logger.warning(f"⚠️ Insufficient data: {len(features_df)} samples (need {self.min_samples_for_training})")
             return {'error': f'Insufficient data: {len(features_df)} samples'}
-        
+
         logger.info(f"✅ Training data ready: {features_df.shape[0]} samples, {features_df.shape[1]} features")
-        
+        self._update_progress(job_status, f"Building features ({features_df.shape[0]} samples)...", 25)
+
         try:
             # Chronological walk-forward split (prevents future data leaking into training)
             split_idx = int(len(features_df) * (1 - self.test_size))
@@ -138,14 +148,16 @@ class XGBoostTrainer:
             X_test = features_df.iloc[split_idx:]
             y_train = targets_df['target'].iloc[:split_idx - purge_gap]
             y_test = targets_df['target'].iloc[split_idx:]
-            
+
             # Scale features
             scaler = StandardScaler()
             X_train_scaled = scaler.fit_transform(X_train)
             X_test_scaled = scaler.transform(X_test)
-            
+
             # Create model
             model = await self.create_model()
+
+            self._update_progress(job_status, "Training XGBoost model...", 30)
 
             # Run blocking CPU-heavy training in a thread so the async event loop
             # stays responsive (health checks, status polls keep working).
@@ -176,7 +188,10 @@ class XGBoostTrainer:
                 None, _train_and_evaluate
             )
 
+            self._update_progress(job_status, "Running cross-validation...", 70)
+
             # Calculate metrics
+            self._update_progress(job_status, "Calculating metrics...", 85)
             metrics = await self._calculate_metrics(y_test, y_pred, y_pred_proba)
             metrics['cv_mean'] = float(cv_scores.mean())
             metrics['cv_std'] = float(cv_scores.std())
@@ -187,12 +202,15 @@ class XGBoostTrainer:
 
             # Get feature importance
             feature_importance = await self._get_feature_importance(model, features_df.columns.tolist())
-            
+
             # Save model
+            self._update_progress(job_status, "Saving model...", 90)
             model_info = await self._save_model(
                 model, scaler, internal_pair, metrics, feature_importance
             )
-            
+
+            self._update_progress(job_status, "Complete", 100)
+
             result = {
                 'model': model,
                 'scaler': scaler,
@@ -200,10 +218,10 @@ class XGBoostTrainer:
                 'feature_importance': feature_importance,
                 'model_info': model_info
             }
-            
+
             logger.info(f"✅ XGBoost training completed - Accuracy: {metrics['accuracy']:.4f}")
             return result
-            
+
         except Exception as e:
             logger.error(f"❌ Error training XGBoost model: {str(e)}")
             return {'error': str(e)}

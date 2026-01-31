@@ -219,16 +219,19 @@ async def run_training_worker():
             # Update job status
             job["status"] = "training"
             job["started_at"] = datetime.now()
-            
+            job["progress"] = "Preparing data..."
+            job["progress_pct"] = 5
+
             logger.info(f"🧠 Training model for {job['trading_pair']} ({job_id})")
-            
+
             try:
                 # Dispatch to specialized trainer helper if available, else fallback to ModelTrainer
                 model_type = job["model_type"]
                 helper = trainer_helpers.get(model_type)
                 if helper:
                     result = await helper.train_model(
-                        trading_pair=job["trading_pair"]
+                        trading_pair=job["trading_pair"],
+                        job_status=job
                     )
                 else:
                     result = await model_trainer.train_model(
@@ -239,6 +242,8 @@ async def run_training_worker():
                 # Update job with result
                 job["completed_at"] = datetime.now()
                 job["result"] = result
+                job["progress"] = "Saving to cloud..."
+                job["progress_pct"] = 95
 
                 # Check if trainer returned an error (e.g., insufficient data)
                 if result and result.get("error"):
@@ -295,13 +300,17 @@ async def run_training_worker():
                         job["result"]["storage_error"] = str(e)
                 
                 if job["status"] == "failed":
+                    job["progress"] = "Failed"
                     logger.info(f"❌ Training failed for {job['trading_pair']} ({job_id}): {job.get('error')}")
                 else:
+                    job["progress"] = "Complete"
+                    job["progress_pct"] = 100
                     logger.info(f"✅ Training completed for {job['trading_pair']} ({job_id})")
                 
             except Exception as e:
                 logger.error(f"❌ Training error for {job['trading_pair']} ({job_id}): {str(e)}")
                 job["status"] = "failed"
+                job["progress"] = "Failed"
                 job["error"] = str(e)
                 job["completed_at"] = datetime.now()
             
@@ -521,19 +530,21 @@ async def train_model(request: TrainingRequest):
         "trading_pair": canonical_pair,
         "model_type": request.model_type,
         "status": "queued",
+        "progress": "Queued",
+        "progress_pct": 0,
         "submitted_at": datetime.now(),
         "started_at": None,
         "completed_at": None,
         "result": None,
         "error": None
     }
-    
+
     # Add job to queue
     training_jobs[job_id] = job
     await training_queue.put(job_id)
-    
+
     logger.info(f"📋 Training job queued for {canonical_pair} ({job_id})")
-    
+
     return TrainingResponse(
         job_id=job_id,
         trading_pair=canonical_pair,
@@ -557,6 +568,8 @@ async def get_training_status(job_id: str):
         "trading_pair": job.get("trading_pair"),
         "model_type": job.get("model_type"),
         "status": job.get("status"),
+        "progress": job.get("progress", ""),
+        "progress_pct": job.get("progress_pct", 0),
         "error": job.get("error"),
         "submitted_at": job["submitted_at"].isoformat() if job.get("submitted_at") else None,
         "started_at": job["started_at"].isoformat() if job.get("started_at") else None,
@@ -581,17 +594,19 @@ async def train_all_models(model_type: str = "xgboost", force_retrain: bool = Fa
             "trading_pair": canonical_pair,
             "model_type": model_type,
             "status": "queued",
+            "progress": "Queued",
+            "progress_pct": 0,
             "submitted_at": datetime.now(),
             "started_at": None,
             "completed_at": None,
             "result": None,
             "error": None
         }
-        
+
         # Add job to queue
         training_jobs[job_id] = job
         await training_queue.put(job_id)
-        
+
         jobs.append({
             "job_id": job_id,
             "trading_pair": canonical_pair,
@@ -776,6 +791,8 @@ async def schedule_auto_training():
                             "trading_pair": canonical_pair,
                             "model_type": model_type,
                             "status": "queued",
+                            "progress": "Queued",
+                            "progress_pct": 0,
                             "submitted_at": datetime.now(),
                             "started_at": None,
                             "completed_at": None,
