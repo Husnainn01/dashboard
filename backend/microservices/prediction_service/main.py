@@ -29,7 +29,7 @@ backend_dir = current_dir.parent.parent
 sys.path.append(str(backend_dir))
 
 # Pair normalization helper (delegate to shared utility)
-from shared.pairs import normalize_internal as _normalize_internal
+from shared.pairs import normalize_internal as _normalize_internal, to_api_asset
 
 def normalize_trading_pair(raw: str) -> str:
     """Normalize trading pair to canonical internal form using shared utility.
@@ -217,9 +217,11 @@ async def prepare_features_for_prediction(trading_pair: str, lookback_candles: i
     start_time = time.time()
     
     try:
-        # Get recent candles
+        # Get recent candles — convert canonical pair to API format (e.g. BRLUSD_otc)
+        # because data collection stores candles with to_api_asset()
+        api_pair = to_api_asset(trading_pair) or trading_pair
         candles = await mongodb_manager.get_candles_for_training(
-            limit=lookback_candles, trading_pair=trading_pair
+            limit=lookback_candles, trading_pair=api_pair
         )
         
         if len(candles) < 30:  # Reduced from 50 to allow more pairs to work
@@ -1123,6 +1125,17 @@ async def unsubscribe_pair(trading_pair: str):
     logger.info(f"📡 Unsubscribed from {canonical} (active pairs: {len(prediction_service_state['active_pairs'])})")
 
     return {"status": "unsubscribed", "trading_pair": canonical}
+
+@app.post("/set-priority")
+async def set_priority_pair(trading_pair: str):
+    """Set a trading pair as the priority for predictions"""
+    global prediction_service_state
+
+    canonical = normalize_trading_pair(trading_pair)
+    prediction_service_state["priority_pair"] = canonical
+    logger.info(f"⭐ Priority pair set to {canonical}")
+
+    return {"status": "priority_set", "trading_pair": canonical}
 
 @app.post("/start")
 async def start_prediction_service():
