@@ -74,7 +74,7 @@ class RandomForestTrainer:
             p.update(params)
         return RandomForestClassifier(**p)
 
-    async def train_model(self, trading_pair: str, data_limit: int = 2000) -> Dict:
+    async def train_model(self, trading_pair: str, data_limit: int = 2000, **kwargs) -> Dict:
         api_pair = to_api_asset(trading_pair) or trading_pair
         internal_pair = normalize_internal(trading_pair) or trading_pair
         logger.info(f"🧠 Training RandomForest model for {trading_pair} (api={api_pair}, internal={internal_pair})")

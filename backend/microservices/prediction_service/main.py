@@ -1092,17 +1092,31 @@ async def select_model_api_prefix(request: PredictionRequest):
     """Alias for selecting a model when service is mounted with an /api prefix"""
     return await select_model(request)
 
+@app.post("/start")
+async def start_prediction_service():
+    """Start continuous prediction service"""
+    global prediction_service_state
+
+    if prediction_service_state["is_running"]:
+        return {"status": "already_running"}
+
+    prediction_service_state["is_running"] = True
+    asyncio.create_task(run_continuous_predictions())
+    logger.info("🔮 Prediction service started via /start endpoint")
+
+    return {"status": "started"}
+
 @app.post("/stop")
 async def stop_prediction_service():
     """Stop continuous prediction service"""
     global prediction_service_state
 
-    
+
     if not prediction_service_state["is_running"]:
         return {"status": "not_running"}
-    
+
     prediction_service_state["is_running"] = False
-    
+
     return {"status": "stopping"}
 
 # WebSocket endpoint for predictions
