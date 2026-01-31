@@ -671,11 +671,6 @@ async def make_prediction(request: PredictionRequest):
             }
             logger.info(f"🔑 Stored model selection for {canonical}: {model_selections[canonical]}")
             
-            # Start continuous predictions if not already running
-            if not prediction_service_state["is_running"]:
-                logger.info(f"🔮 Starting continuous predictions with user-selected model")
-                prediction_service_state["is_running"] = True
-                asyncio.create_task(run_continuous_predictions())
         
         # Load explicit model if provided, otherwise get best model
         if getattr(request, 'model_name', None):
@@ -900,6 +895,19 @@ async def make_prediction(request: PredictionRequest):
                     if predicted_class == 1 or pcs == 'up' or pcs == '1' or predicted_class is True:
                         prediction_binary = 1
                     elif predicted_class == 0 or pcs == 'down' or pcs == '0' or predicted_class is False:
+                        prediction_binary = 0
+                    else:
+                        prediction_binary = 1 if prob_up >= 0.5 else 0
+                else:
+                    prediction_binary = 1 if prob_up >= 0.5 else 0
+            else:
+                # No class info available — use raw probabilities
+                prob_up = float(prediction_proba[1]) if len(prediction_proba) > 1 else 0.5
+                if predicted_class is not None:
+                    pcs = str(predicted_class).lower()
+                    if predicted_class == 1 or pcs == 'up' or pcs == '1':
+                        prediction_binary = 1
+                    elif predicted_class == 0 or pcs == 'down' or pcs == '0':
                         prediction_binary = 0
                     else:
                         prediction_binary = 1 if prob_up >= 0.5 else 0
@@ -1163,6 +1171,19 @@ async def stop_prediction_service():
     prediction_service_state["is_running"] = False
 
     return {"status": "stopping"}
+
+@app.post("/reset-circuit-breaker")
+async def reset_circuit_breaker(trading_pair: str = None):
+    """Reset circuit breaker for a specific trading pair or all pairs"""
+    if trading_pair:
+        canonical = normalize_trading_pair(trading_pair)
+        cb = prediction_mgr.get_circuit_breaker(canonical)
+        cb.reset()
+        return {"status": "reset", "trading_pair": canonical}
+    else:
+        for cb in prediction_mgr.circuit_breakers.values():
+            cb.reset()
+        return {"status": "all_reset"}
 
 # WebSocket endpoint for predictions
 @app.websocket("/ws/predictions")

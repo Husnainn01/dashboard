@@ -378,6 +378,15 @@ class ModelStorageService:
                 )
                 model_bytes = model_obj['Body'].read()
                 model = pickle.loads(model_bytes)
+
+                # Handle models saved as combined dict {'model': ..., 'scaler': ...}
+                # by the training service's _save_model()
+                bundled_scaler = None
+                if isinstance(model, dict) and 'model' in model:
+                    logger.info(f"📦 Unwrapping bundled model dict (keys: {list(model.keys())})")
+                    bundled_scaler = model.get('scaler')
+                    model = model['model']
+
                 logger.info(f"✅ Model loaded successfully")
             except Exception as e:
                 logger.error(f"❌ Failed to load model from {model_key}: {str(e)}")
@@ -417,6 +426,11 @@ class ModelStorageService:
                 logger.info(f"🔧 Scaler attributes: n_features_in_={scaler.n_features_in_}, n_samples_seen_={scaler.n_samples_seen_}")
                 logger.info(f"🔧 Scaler mean shape: {scaler.mean_.shape}, scale shape: {scaler.scale_.shape}")
             
+            # Prefer bundled scaler from the model dict if available
+            if bundled_scaler is not None:
+                scaler = bundled_scaler
+                logger.info(f"✅ Using scaler bundled with model")
+
             logger.info(f"✅ Model loaded from R2 storage: {model_id}")
             return model, scaler, metadata
             
