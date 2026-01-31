@@ -1092,6 +1092,38 @@ async def select_model_api_prefix(request: PredictionRequest):
     """Alias for selecting a model when service is mounted with an /api prefix"""
     return await select_model(request)
 
+@app.get("/predict-by-query")
+async def predict_by_query(trading_pair: str, model_type: str = None, model_name: str = None):
+    """GET-based prediction endpoint using query params (called by API gateway)"""
+    request = PredictionRequest(
+        trading_pair=trading_pair,
+        model_type=model_type or "xgboost",
+        model_name=model_name
+    )
+    return await make_prediction(request)
+
+@app.post("/subscribe")
+async def subscribe_pair(trading_pair: str):
+    """Subscribe a trading pair for active predictions"""
+    global prediction_service_state
+
+    canonical = normalize_trading_pair(trading_pair)
+    prediction_service_state["active_pairs"].add(canonical)
+    logger.info(f"📡 Subscribed to {canonical} (active pairs: {len(prediction_service_state['active_pairs'])})")
+
+    return {"status": "subscribed", "trading_pair": canonical}
+
+@app.post("/unsubscribe")
+async def unsubscribe_pair(trading_pair: str):
+    """Unsubscribe a trading pair from active predictions"""
+    global prediction_service_state
+
+    canonical = normalize_trading_pair(trading_pair)
+    prediction_service_state["active_pairs"].discard(canonical)
+    logger.info(f"📡 Unsubscribed from {canonical} (active pairs: {len(prediction_service_state['active_pairs'])})")
+
+    return {"status": "unsubscribed", "trading_pair": canonical}
+
 @app.post("/start")
 async def start_prediction_service():
     """Start continuous prediction service"""
