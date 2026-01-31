@@ -144,29 +144,40 @@ class XGBoostTrainer:
             X_train_scaled = scaler.fit_transform(X_train)
             X_test_scaled = scaler.transform(X_test)
             
-            # Create and train model
+            # Create model
             model = await self.create_model()
 
-            # Train on full train set; use eval_set to monitor but no early stopping
-            # (early_stopping breaks sklearn cross_val_score which calls .fit() without eval_set)
-            model.fit(
-                X_train_scaled, y_train,
-                eval_set=[(X_test_scaled, y_test)],
-                verbose=False
-            )
+            # Run blocking CPU-heavy training in a thread so the async event loop
+            # stays responsive (health checks, status polls keep working).
+            import asyncio
+            from sklearn.base import clone
 
-            # Make predictions
-            y_pred = model.predict(X_test_scaled)
-            y_pred_proba = model.predict_proba(X_test_scaled)[:, 1]
+            def _train_and_evaluate():
+                # Train on full train set; eval_set for monitoring only
+                model.fit(
+                    X_train_scaled, y_train,
+                    eval_set=[(X_test_scaled, y_test)],
+                    verbose=False
+                )
+
+                # Predictions
+                y_pred = model.predict(X_test_scaled)
+                y_pred_proba = model.predict_proba(X_test_scaled)[:, 1]
+
+                # Time-series cross-validation (fresh clone avoids eval_set issues)
+                cv_model = clone(model)
+                tscv = TimeSeriesSplit(n_splits=5)
+                cv_scores = cross_val_score(cv_model, X_train_scaled, y_train, cv=tscv, scoring='accuracy')
+
+                return y_pred, y_pred_proba, cv_scores
+
+            loop = asyncio.get_event_loop()
+            y_pred, y_pred_proba, cv_scores = await loop.run_in_executor(
+                None, _train_and_evaluate
+            )
 
             # Calculate metrics
             metrics = await self._calculate_metrics(y_test, y_pred, y_pred_proba)
-
-            # Time-series cross-validation (uses a fresh model without eval_set dependency)
-            from sklearn.base import clone
-            cv_model = clone(model)
-            tscv = TimeSeriesSplit(n_splits=5)
-            cv_scores = cross_val_score(cv_model, X_train_scaled, y_train, cv=tscv, scoring='accuracy')
             metrics['cv_mean'] = float(cv_scores.mean())
             metrics['cv_std'] = float(cv_scores.std())
 

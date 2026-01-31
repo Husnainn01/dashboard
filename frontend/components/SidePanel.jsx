@@ -163,8 +163,8 @@ export default function SidePanel({
             setTrainError(errMsg);
           }
         }
-        // Stop polling after 5 minutes
-        if (attempts > 60) {
+        // Stop polling after 10 minutes
+        if (attempts > 120) {
           clearInterval(pollRef.current);
           pollRef.current = null;
           setIsTraining(false);
@@ -173,8 +173,8 @@ export default function SidePanel({
         }
       } catch (e) {
         console.warn(`Poll attempt ${attempts} failed:`, e?.message || e);
-        // Stop after 10 consecutive failures (not just 60 attempts)
-        if (attempts > 20) {
+        // Stop after 120 attempts (10 min at 5s intervals)
+        if (attempts > 120) {
           clearInterval(pollRef.current);
           pollRef.current = null;
           setIsTraining(false);
