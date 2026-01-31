@@ -822,7 +822,22 @@ async def make_prediction(request: PredictionRequest):
                             features = features[:, :expected_features]
                         
                         logger.info(f"✅ Removed {actual_features - expected_features} extra features")
-            
+
+            # Scale features using the scaler from training
+            try:
+                if scaler is not None:
+                    if isinstance(features, pd.DataFrame):
+                        col_names = features.columns
+                        idx = features.index
+                        features = pd.DataFrame(scaler.transform(features), columns=col_names, index=idx)
+                    else:
+                        features = scaler.transform(features)
+                    logger.info(f"✅ Features scaled successfully")
+                else:
+                    logger.warning("⚠️ No scaler available — using unscaled features")
+            except Exception as e:
+                logger.warning(f"⚠️ Scaler transform failed ({str(e)}), proceeding with unscaled features")
+
             # Make the prediction with robust class/probability mapping
             predicted_class = None
             
@@ -931,7 +946,7 @@ async def make_prediction(request: PredictionRequest):
             
             if len(recent_candles) > 1:
                 # Calculate recent price changes as percentage
-                price_changes = [abs(c['close'] - c['open']) / c['open'] for c in recent_candles]
+                price_changes = [abs(c['close'] - c['open']) / c['open'] for c in recent_candles if c.get('open') and c['open'] != 0]
                 recent_volatility = sum(price_changes) / len(price_changes)
                 logger.info(f"📊 Recent market volatility: {recent_volatility:.6f} ({len(recent_candles)} candles)")
         except Exception as e:

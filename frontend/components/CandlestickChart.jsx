@@ -166,6 +166,31 @@ export default function CandlestickChart({ tradingPair, prediction }) {
         ts = lastCandleTimeRef.current;
       }
 
+      // If candles haven't loaded yet, retry after a short delay
+      if (!lastCandleTimeRef.current) {
+        const retryTimeout = setTimeout(() => {
+          if (lastCandleTimeRef.current && seriesRef.current) {
+            ts = lastCandleTimeRef.current;
+            const isUpRetry = (prediction.direction || '').toLowerCase() === 'up';
+            const retryMarker = {
+              time: ts,
+              position: isUpRetry ? 'belowBar' : 'aboveBar',
+              color: isUpRetry ? '#00ff88' : '#ff4444',
+              shape: isUpRetry ? 'arrowUp' : 'arrowDown',
+              text: isUpRetry ? 'UP' : 'DOWN',
+            };
+            const existing = markersRef.current;
+            const deduped = existing.filter((m) => m.time !== retryMarker.time);
+            deduped.push(retryMarker);
+            deduped.sort((a, b) => a.time - b.time);
+            if (deduped.length > 50) deduped.splice(0, deduped.length - 50);
+            markersRef.current = deduped;
+            seriesRef.current.setMarkers(markersRef.current);
+          }
+        }, 2000);
+        return () => clearTimeout(retryTimeout);
+      }
+
       const isUp = (prediction.direction || '').toLowerCase() === 'up';
 
       const newMarker = {
@@ -190,7 +215,7 @@ export default function CandlestickChart({ tradingPair, prediction }) {
 
       seriesRef.current.setMarkers(markersRef.current);
     } catch (e) {
-      // Marker placement is optional; don't crash
+      console.error('Failed to place prediction marker:', e);
     }
   }, [prediction]);
 
