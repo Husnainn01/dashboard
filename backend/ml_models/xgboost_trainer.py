@@ -71,7 +71,6 @@ class XGBoostTrainer:
             'reg_lambda': 1.0,             # L2 regularization
             'scale_pos_weight': 1.0,       # Balance positive/negative weights
             'objective': 'binary:logistic',
-            'eval_metric': 'logloss',
             'random_state': 42,
             'n_jobs': -1                   # Use all cores
         }
@@ -147,27 +146,27 @@ class XGBoostTrainer:
             
             # Create and train model
             model = await self.create_model()
-            
-            # Train with early stopping via callbacks (XGBoost 2.0+ API)
-            from xgboost import callback as xgb_cb
-            eval_set = [(X_train_scaled, y_train), (X_test_scaled, y_test)]
+
+            # Train on full train set; use eval_set to monitor but no early stopping
+            # (early_stopping breaks sklearn cross_val_score which calls .fit() without eval_set)
             model.fit(
                 X_train_scaled, y_train,
-                eval_set=eval_set,
-                verbose=False,
-                callbacks=[xgb_cb.EarlyStopping(rounds=20, save_best=True)]
+                eval_set=[(X_test_scaled, y_test)],
+                verbose=False
             )
-            
+
             # Make predictions
             y_pred = model.predict(X_test_scaled)
             y_pred_proba = model.predict_proba(X_test_scaled)[:, 1]
-            
+
             # Calculate metrics
             metrics = await self._calculate_metrics(y_test, y_pred, y_pred_proba)
 
-            # Time-series cross-validation
+            # Time-series cross-validation (uses a fresh model without eval_set dependency)
+            from sklearn.base import clone
+            cv_model = clone(model)
             tscv = TimeSeriesSplit(n_splits=5)
-            cv_scores = cross_val_score(model, X_train_scaled, y_train, cv=tscv, scoring='accuracy')
+            cv_scores = cross_val_score(cv_model, X_train_scaled, y_train, cv=tscv, scoring='accuracy')
             metrics['cv_mean'] = float(cv_scores.mean())
             metrics['cv_std'] = float(cv_scores.std())
 
