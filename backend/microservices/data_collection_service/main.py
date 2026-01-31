@@ -929,8 +929,12 @@ async def get_candles(trading_pair: str, limit: int = 50):
     global mongodb_manager
     
     try:
+        # Normalize trading pair to match MongoDB storage format
+        from shared.pairs import to_api_asset
+        normalized_pair = to_api_asset(trading_pair) or trading_pair
+
         # Get latest candles from MongoDB
-        candles = await mongodb_manager.get_latest_candles(trading_pair=trading_pair, limit=limit)
+        candles = await mongodb_manager.get_latest_candles(trading_pair=normalized_pair, limit=limit)
         
         if not candles:
             return {
